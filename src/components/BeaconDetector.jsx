@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { getBeaconScanner } from '../services/beaconScanner'
 
-export default function BeaconDetector({ onCheckpointDetected, isEnabled }) {
+export default function BeaconDetector({ onCheckpointDetected, isEnabled, compact = false }) {
   const [scanStatus, setScanStatus] = useState('idle') // idle | scanning | error
   const [errorMessage, setErrorMessage] = useState('')
   const [detectedList, setDetectedList] = useState([])
@@ -55,7 +55,7 @@ export default function BeaconDetector({ onCheckpointDetected, isEnabled }) {
   }
 
   return (
-    <section className="beacon-detector">
+    <section className={`beacon-detector ${compact ? 'compact' : ''}`}>
       <div className="beacon-header">
         <h3>🔵 비콘 감지</h3>
         <span className={`beacon-status ${scanStatus}`}>
@@ -103,7 +103,7 @@ export default function BeaconDetector({ onCheckpointDetected, isEnabled }) {
             <div className="beacon-list">
               <p className="beacon-hint">감지된 비콘:</p>
               <ul>
-                {detectedList.map((beacon) => (
+                {(compact ? detectedList.slice(-3) : detectedList).map((beacon) => (
                   <li key={beacon.id}>
                     <strong>{beacon.id}</strong>
                     <span className="beacon-rssi">

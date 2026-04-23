@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { loadKakaoMaps } from '../lib/loadKakaoMaps'
+import BeaconDetector from './BeaconDetector'
 
 function getMapCenter(checkpoint) {
   return {
@@ -15,10 +16,13 @@ export default function MapPanel({
   nextCheckpoint,
   navigationPath,
   navigationInfo,
+  onBeaconDetected,
+  isBeaconEnabled,
 }) {
   const mapRef = useRef(null)
   const [errorMessage, setErrorMessage] = useState('')
   const [routeError, setRouteError] = useState('')
+  const [showBeaconPanel, setShowBeaconPanel] = useState(false)
 
   useEffect(() => {
     const appKey = import.meta.env.VITE_KAKAO_MAP_APP_KEY
@@ -68,16 +72,12 @@ export default function MapPanel({
           let strokeColor = '#0f766e' // 기본: Kakao (검정-초록)
           let strokeWeight = 6
           let strokeOpacity = 0.95
-          let description = '경로'
 
           if (navigationInfo?.source === 'gpx') {
             strokeColor = '#2563eb' // 파란색: 등산로(고정)
-            strokeDashboard = 'solid'
-            description = '등산로'
           } else if (navigationInfo?.source === 'cardinal') {
             strokeColor = '#64748b' // 회색: 직선
             strokeOpacity = 0.6
-            description = '직선'
           }
 
           new kakao.maps.Polyline({
@@ -181,6 +181,13 @@ export default function MapPanel({
       </div>
 
       <div className="map-actions">
+        <button
+          type="button"
+          className="stamp-button"
+          onClick={() => setShowBeaconPanel((prev) => !prev)}
+        >
+          {showBeaconPanel ? '비콘 스캔 닫기' : '비콘 스캔 열기'}
+        </button>
         <button type="button" className="stamp-button" onClick={openKakaoDirection}>
           카카오맵 길찾기 열기
         </button>
@@ -193,6 +200,16 @@ export default function MapPanel({
         </p>
       ) : null}
       {routeError ? <p className="subtle-text">{routeError}</p> : null}
+
+      {showBeaconPanel ? (
+        <section className="beacon-inline">
+          <BeaconDetector
+            onCheckpointDetected={onBeaconDetected}
+            isEnabled={isBeaconEnabled}
+            compact
+          />
+        </section>
+      ) : null}
     </section>
   )
 }

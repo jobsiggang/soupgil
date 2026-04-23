@@ -208,7 +208,18 @@
 }
 
 .map-actions {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
   margin-top: 14px;
+}
+
+.beacon-inline {
+  margin-top: 14px;
+  padding: 12px;
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  background: var(--panel-soft);
 }
 
 .map-meta,
@@ -364,6 +375,37 @@
 /* Beacon Detector Styles */
 .beacon-detector {
   margin-top: 20px;
+}
+
+.beacon-detector.compact {
+  margin-top: 0;
+}
+
+.beacon-detector.compact .beacon-header {
+  margin-bottom: 12px;
+}
+
+.beacon-detector.compact .beacon-header h3 {
+  font-size: 1rem;
+}
+
+.beacon-detector.compact .beacon-controls {
+  margin-bottom: 10px;
+}
+
+.beacon-detector.compact .beacon-button {
+  padding: 10px 14px;
+  font-size: 0.9rem;
+}
+
+.beacon-detector.compact .beacon-list {
+  padding: 10px;
+}
+
+.beacon-detector.compact .beacon-list li {
+  padding: 8px;
+  gap: 8px;
+  font-size: 0.85rem;
 }
 
 .beacon-detector .panel-heading {

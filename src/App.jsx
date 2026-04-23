@@ -2,7 +2,6 @@ import { useEffect, useMemo, useState, useTransition } from 'react'
 import './App.css'
 import MapPanel from './components/MapPanel'
 import StampBoard from './components/StampBoard'
-import BeaconDetector from './components/BeaconDetector'
 import { initialStampedIds, trailCourse } from './data/trails'
 import { fetchPoiPreview } from './services/poiService'
 import { fetchAllSectionPois, TRAIL_SECTIONS } from './services/poiCache'
@@ -300,6 +299,8 @@ function App() {
           nextCheckpoint={nextCheckpoint}
           navigationPath={navigationPath}
           navigationInfo={navigationInfo}
+          onBeaconDetected={handleBeaconDetected}
+          isBeaconEnabled={!!currentUser}
         />
 
         <section className="panel progress-panel">
@@ -367,10 +368,6 @@ function App() {
         onSelect={setSelectedCheckpoint}
         onStamp={handleStamp}
       />
-
-      <section className="panel beacon-detector">
-        <BeaconDetector onCheckpointDetected={handleBeaconDetected} isEnabled={!!currentUser} />
-      </section>
 
       <section className="panel user-section">
         <div className="panel-heading">
