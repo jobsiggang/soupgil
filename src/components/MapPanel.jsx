@@ -8,9 +8,17 @@ function getMapCenter(checkpoint) {
   }
 }
 
-export default function MapPanel({ checkpoints, selectedCheckpoint, apiPreview }) {
+export default function MapPanel({
+  checkpoints,
+  selectedCheckpoint,
+  apiPreview,
+  nextCheckpoint,
+  navigationPath,
+  navigationInfo,
+}) {
   const mapRef = useRef(null)
   const [errorMessage, setErrorMessage] = useState('')
+  const [routeError, setRouteError] = useState('')
 
   useEffect(() => {
     const appKey = import.meta.env.VITE_KAKAO_MAP_APP_KEY
@@ -42,14 +50,49 @@ export default function MapPanel({ checkpoints, selectedCheckpoint, apiPreview }
           (checkpoint) => new kakao.maps.LatLng(checkpoint.lat, checkpoint.lng),
         )
 
-        new kakao.maps.Polyline({
+        const fallbackPolyline = new kakao.maps.Polyline({
           map,
           path: linePath,
           strokeWeight: 5,
-          strokeColor: '#0f766e',
-          strokeOpacity: 0.8,
-          strokeStyle: 'solid',
+          strokeColor: '#94a3b8',
+          strokeOpacity: 0.5,
+          strokeStyle: 'shortdash',
         })
+
+        if (navigationPath?.length > 1) {
+          const routePath = navigationPath.map(
+            (point) => new kakao.maps.LatLng(point.lat, point.lng),
+          )
+
+          // 경로 소스에 따라 색상과 스타일 결정
+          let strokeColor = '#0f766e' // 기본: Kakao (검정-초록)
+          let strokeWeight = 6
+          let strokeOpacity = 0.95
+          let description = '경로'
+
+          if (navigationInfo?.source === 'gpx') {
+            strokeColor = '#2563eb' // 파란색: 등산로(고정)
+            strokeDashboard = 'solid'
+            description = '등산로'
+          } else if (navigationInfo?.source === 'cardinal') {
+            strokeColor = '#64748b' // 회색: 직선
+            strokeOpacity = 0.6
+            description = '직선'
+          }
+
+          new kakao.maps.Polyline({
+            map,
+            path: routePath,
+            strokeWeight,
+            strokeColor,
+            strokeOpacity,
+            strokeStyle: 'solid',
+          })
+          fallbackPolyline.setMap(null)
+          setRouteError('')
+        } else {
+          setRouteError('내비 경로를 불러오지 못해 직선 경로로 표시합니다.')
+        }
 
         checkpoints.forEach((checkpoint) => {
           const marker = new kakao.maps.Marker({
@@ -76,7 +119,18 @@ export default function MapPanel({ checkpoints, selectedCheckpoint, apiPreview }
     return () => {
       isDisposed = true
     }
-  }, [checkpoints, selectedCheckpoint])
+  }, [checkpoints, navigationPath, selectedCheckpoint])
+
+  function openKakaoDirection() {
+    if (!selectedCheckpoint || !nextCheckpoint) {
+      return
+    }
+
+    const fromName = encodeURIComponent(selectedCheckpoint.title)
+    const toName = encodeURIComponent(nextCheckpoint.title)
+    const url = `https://map.kakao.com/link/from/${fromName},${selectedCheckpoint.lat},${selectedCheckpoint.lng}/to/${toName},${nextCheckpoint.lat},${nextCheckpoint.lng}`
+    window.open(url, '_blank', 'noopener,noreferrer')
+  }
 
   const previewItem = apiPreview?.items?.[0]
 
@@ -113,10 +167,32 @@ export default function MapPanel({ checkpoints, selectedCheckpoint, apiPreview }
           </strong>
         </div>
         <div>
+          <span className="meta-label">경로 정보</span>
+          {navigationInfo?.description ? (
+            <strong>{navigationInfo.description}</strong>
+          ) : (
+            <strong>경로 없음</strong>
+          )}
+        </div>
+        <div>
           <span className="meta-label">API 미리보기</span>
           <strong>{previewItem?.placeName ?? '아직 조회 안 함'}</strong>
         </div>
       </div>
+
+      <div className="map-actions">
+        <button type="button" className="stamp-button" onClick={openKakaoDirection}>
+          카카오맵 길찾기 열기
+        </button>
+      </div>
+
+      {navigationInfo ? (
+        <p className="subtle-text">
+          경로 길이 {(navigationInfo.distanceMeter / 1000).toFixed(1)}km, 예상 시간{' '}
+          {Math.round(navigationInfo.durationSecond / 60)}분
+        </p>
+      ) : null}
+      {routeError ? <p className="subtle-text">{routeError}</p> : null}
     </section>
   )
 }

@@ -8,10 +8,12 @@ import { fetchPoiPreview } from './services/poiService'
 import { fetchAllSectionPois, TRAIL_SECTIONS } from './services/poiCache'
 import {
   completeSection,
+  fetchNavigationRoute,
   getUserProgress,
   recordStamp,
   registerUser,
 } from './services/apiClient'
+import { selectRouteByThreshold, getRouteDescription } from './data/sectionRoutes'
 
 function mapPoiToCheckpoint(section, item) {
   return {
@@ -43,6 +45,9 @@ function App() {
 
   const [poiBySection, setPoiBySection] = useState({})
   const [isLoadingPois, setIsLoadingPois] = useState(false)
+  const [navigationPath, setNavigationPath] = useState([])
+  const [navigationInfo, setNavigationInfo] = useState(null)
+  const [selectedSectionId, setSelectedSectionId] = useState(null)
 
   const dynamicCheckpoints = useMemo(() => {
     const flattened = TRAIL_SECTIONS.flatMap((section) => {
@@ -113,6 +118,61 @@ function App() {
     () => checkpoints.find((checkpoint) => !stampedIds.includes(checkpoint.id)) ?? null,
     [checkpoints, stampedIds],
   )
+
+  useEffect(() => {
+    async function loadNavigationPath() {
+      if (!selectedCheckpoint || !nextCheckpoint || selectedCheckpoint.id === nextCheckpoint.id) {
+        setNavigationPath([])
+        setNavigationInfo(null)
+        setSelectedSectionId(null)
+        return
+      }
+
+      try {
+        // 다음 체크포인트의 section을 기반으로 구간 ID 결정
+        // 또는 selectedCheckpoint의 section 사용
+        let sectionId = null
+        if (nextCheckpoint.section) {
+          const matchingSection = TRAIL_SECTIONS.find((s) => s.name === nextCheckpoint.section)
+          sectionId = matchingSection?.id ?? null
+        }
+
+        const kakaoRoute = await fetchNavigationRoute({
+          originLat: selectedCheckpoint.lat,
+          originLng: selectedCheckpoint.lng,
+          destLat: nextCheckpoint.lat,
+          destLng: nextCheckpoint.lng,
+        })
+
+        // 거리 임계값과 구간별 고정 경로 규칙을 적용하여 최적 경로 선택
+        const selectedRoute = selectRouteByThreshold({
+          originLat: selectedCheckpoint.lat,
+          originLng: selectedCheckpoint.lng,
+          destLat: nextCheckpoint.lat,
+          destLng: nextCheckpoint.lng,
+          sectionId,
+          kakaoPath: kakaoRoute.path ?? [],
+          kakaoDistance: kakaoRoute.summary?.distanceMeter ?? null,
+        })
+
+        setNavigationPath(selectedRoute.path)
+        setNavigationInfo({
+          ...kakaoRoute.summary,
+          source: selectedRoute.source,
+          detourRatio: selectedRoute.detourRatio,
+          distanceMeters: selectedRoute.distanceMeters,
+          description: getRouteDescription(selectedRoute),
+        })
+        setSelectedSectionId(sectionId)
+      } catch (error) {
+        setNavigationPath([])
+        setNavigationInfo(null)
+        setSelectedSectionId(null)
+      }
+    }
+
+    loadNavigationPath()
+  }, [selectedCheckpoint, nextCheckpoint])
 
   async function handlePreviewLoad() {
     const serviceKey = import.meta.env.VITE_PUBLIC_DATA_SERVICE_KEY
@@ -237,6 +297,9 @@ function App() {
           checkpoints={checkpoints}
           selectedCheckpoint={selectedCheckpoint}
           apiPreview={apiPreview}
+          nextCheckpoint={nextCheckpoint}
+          navigationPath={navigationPath}
+          navigationInfo={navigationInfo}
         />
 
         <section className="panel progress-panel">

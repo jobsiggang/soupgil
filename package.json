@@ -3,17 +3,22 @@
   "private": true,
   "version": "0.0.0",
   "type": "module",
+  "engines": {
+    "node": "18.x || 19.x || 20.x"
+  },
   "scripts": {
     "dev": "vite",
     "dev:full": "concurrently \"npm run dev\" \"npm run server\"",
     "server": "node server.js",
     "build": "vite build",
     "lint": "eslint .",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "start": "node server.js"
   },
   "dependencies": {
     "cors": "^2.8.6",
     "express": "^4.22.1",
+    "mongodb": "^5.9.2",
     "react": "^19.2.5",
     "react-dom": "^19.2.5"
   },

@@ -14,6 +14,28 @@ const DATA_DIR = 'data'
 const USERS_FILE = path.join(DATA_DIR, 'users.json')
 const RECORDS_FILE = path.join(DATA_DIR, 'records.json')
 
+function loadLocalEnv(filePath = '.env.local') {
+  if (!fs.existsSync(filePath)) {
+    return
+  }
+
+  const content = fs.readFileSync(filePath, 'utf8')
+  const lines = content.split('\n')
+
+  lines.forEach((line) => {
+    const trimmed = line.trim()
+    if (!trimmed || trimmed.startsWith('#') || !trimmed.includes('=')) {
+      return
+    }
+
+    const [key, ...rest] = trimmed.split('=')
+    const value = rest.join('=')
+    if (!process.env[key]) {
+      process.env[key] = value
+    }
+  })
+}
+
 // 데이터 디렉토리 및 파일 초기화
 function initializeDataFiles() {
   if (!fs.existsSync(DATA_DIR)) {
@@ -205,6 +227,76 @@ app.get('/health', (req, res) => {
   res.json({ status: 'ok', timestamp: new Date().toISOString() })
 })
 
+// 카카오 길찾기 API를 프록시해 브라우저에서 실제 경로를 폴리라인으로 그릴 수 있게 한다.
+app.get('/api/navigation/route', async (req, res) => {
+  const { originLat, originLng, destLat, destLng } = req.query
+  const restApiKey = process.env.KAKAO_REST_API_KEY
+
+  if (!originLat || !originLng || !destLat || !destLng) {
+    return res.status(400).json({ error: 'origin/destination 좌표가 필요합니다.' })
+  }
+
+  if (!restApiKey) {
+    return res.status(503).json({
+      error: 'KAKAO_REST_API_KEY가 설정되지 않았습니다.',
+    })
+  }
+
+  try {
+    const url = new URL('https://apis-navi.kakaomobility.com/v1/directions')
+    url.searchParams.set('origin', `${originLng},${originLat}`)
+    url.searchParams.set('destination', `${destLng},${destLat}`)
+    url.searchParams.set('priority', 'RECOMMEND')
+
+    const response = await fetch(url.toString(), {
+      headers: {
+        Authorization: `KakaoAK ${restApiKey}`,
+      },
+    })
+
+    if (!response.ok) {
+      const payload = await response.text()
+      return res.status(response.status).json({
+        error: '카카오 길찾기 API 호출 실패',
+        detail: payload,
+      })
+    }
+
+    const payload = await response.json()
+    const route = payload.routes?.[0]
+
+    if (!route) {
+      return res.status(404).json({ error: '경로를 찾지 못했습니다.' })
+    }
+
+    const path = []
+    route.sections?.forEach((section) => {
+      section.roads?.forEach((road) => {
+        for (let i = 0; i < road.vertexes.length; i += 2) {
+          path.push({
+            lng: road.vertexes[i],
+            lat: road.vertexes[i + 1],
+          })
+        }
+      })
+    })
+
+    return res.json({
+      summary: {
+        distanceMeter: route.summary?.distance ?? 0,
+        durationSecond: route.summary?.duration ?? 0,
+      },
+      path,
+    })
+  } catch (error) {
+    return res.status(500).json({
+      error: '길찾기 프록시 처리 중 오류',
+      detail: error.message,
+    })
+  }
+})
+
+loadLocalEnv()
 initializeDataFiles()
 
 app.listen(PORT, () => {

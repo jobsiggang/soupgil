@@ -207,6 +207,10 @@
   gap: 12px;
 }
 
+.map-actions {
+  margin-top: 14px;
+}
+
 .map-meta,
 .progress-summary {
   grid-template-columns: repeat(2, minmax(0, 1fr));
