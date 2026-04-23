@@ -1,0 +1,66 @@
+:root {
+  font-family: 'Pretendard Variable', 'SUIT Variable', 'Apple SD Gothic Neo', sans-serif;
+  line-height: 1.5;
+  font-weight: 400;
+  color: #334155;
+  background:
+    radial-gradient(circle at top, rgba(245, 158, 11, 0.12), transparent 32%),
+    linear-gradient(180deg, #fffdf7 0%, #f8fafc 45%, #eef2f7 100%);
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+
+  --ink: #0f172a;
+  --muted: #475569;
+  --border: rgba(15, 23, 42, 0.08);
+  --panel: rgba(255, 255, 255, 0.86);
+  --panel-soft: rgba(248, 250, 252, 0.95);
+  --brand: #0f766e;
+  --brand-deep: #115e59;
+  --shadow-soft: 0 20px 50px rgba(15, 23, 42, 0.08);
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html {
+  scroll-behavior: smooth;
+}
+
+body {
+  margin: 0;
+  min-width: 320px;
+  min-height: 100vh;
+}
+
+button,
+input,
+textarea,
+select {
+  font: inherit;
+}
+
+img {
+  max-width: 100%;
+  display: block;
+}
+
+a {
+  color: inherit;
+}
+
+h1,
+h2,
+h3,
+p,
+dl,
+dd,
+dt {
+  margin: 0;
+}
+
+#root {
+  min-height: 100vh;
+}
