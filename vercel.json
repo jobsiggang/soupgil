@@ -12,7 +12,6 @@
     }
   ],
   "env": {
-    "VITE_API_URL": "@vite-api-url",
     "MONGODB_URI": "@mongodb-uri",
     "KAKAO_REST_API_KEY": "@kakao-rest-api-key"
   }
