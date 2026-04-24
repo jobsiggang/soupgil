@@ -1,6 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
 import { loadKakaoMaps } from '../lib/loadKakaoMaps'
-import BeaconDetector from './BeaconDetector'
 
 function getMapCenter(checkpoint) {
   return {
@@ -16,13 +15,15 @@ export default function MapPanel({
   nextCheckpoint,
   navigationPath,
   navigationInfo,
-  onBeaconDetected,
-  isBeaconEnabled,
+  onLocationCheckIn,
+  isCheckingLocation,
+  autoCheckInEnabled,
+  onToggleAutoCheckIn,
+  liveLocation,
 }) {
   const mapRef = useRef(null)
   const [errorMessage, setErrorMessage] = useState('')
   const [routeError, setRouteError] = useState('')
-  const [showBeaconPanel, setShowBeaconPanel] = useState(false)
 
   useEffect(() => {
     const appKey = import.meta.env.VITE_KAKAO_MAP_APP_KEY
@@ -178,15 +179,27 @@ export default function MapPanel({
           <span className="meta-label">API 미리보기</span>
           <strong>{previewItem?.placeName ?? '아직 조회 안 함'}</strong>
         </div>
+        <div>
+          <span className="meta-label">실시간 위치</span>
+          <strong>
+            {liveLocation
+              ? `${liveLocation.lat.toFixed(6)}, ${liveLocation.lng.toFixed(6)}`
+              : '아직 수신 안 됨'}
+          </strong>
+        </div>
       </div>
 
       <div className="map-actions">
         <button
           type="button"
           className="stamp-button"
-          onClick={() => setShowBeaconPanel((prev) => !prev)}
+          onClick={onLocationCheckIn}
+          disabled={isCheckingLocation}
         >
-          {showBeaconPanel ? '비콘 스캔 닫기' : '비콘 스캔 열기'}
+          {isCheckingLocation ? '현재 위치 확인 중...' : '현재 위치로 점수 획득'}
+        </button>
+        <button type="button" className="stamp-button" onClick={onToggleAutoCheckIn}>
+          {autoCheckInEnabled ? '자동 획득 끄기' : '자동 획득 켜기'}
         </button>
         <button type="button" className="stamp-button" onClick={openKakaoDirection}>
           카카오맵 길찾기 열기
@@ -200,16 +213,6 @@ export default function MapPanel({
         </p>
       ) : null}
       {routeError ? <p className="subtle-text">{routeError}</p> : null}
-
-      {showBeaconPanel ? (
-        <section className="beacon-inline">
-          <BeaconDetector
-            onCheckpointDetected={onBeaconDetected}
-            isEnabled={isBeaconEnabled}
-            compact
-          />
-        </section>
-      ) : null}
     </section>
   )
 }

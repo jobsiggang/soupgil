@@ -30,15 +30,19 @@ export async function getUserProgress(userId) {
   return response.json()
 }
 
-export async function recordStamp(userId, checkpointId, beaconData = {}) {
+export async function recordStamp(userId, checkpointId, stampData = {}) {
   const response = await fetch(toApiUrl(`/api/users/${userId}/stamps`), {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
       checkpointId,
-      lat: beaconData.lat,
-      lng: beaconData.lng,
-      beaconId: beaconData.beaconId,
+      lat: stampData.lat,
+      lng: stampData.lng,
+      source: stampData.source,
+      distanceMeter: stampData.distanceMeter,
+      score: stampData.score,
+      difficulty: stampData.difficulty,
+      altitude: stampData.altitude,
       timestamp: new Date().toISOString(),
     }),
   })

@@ -40,21 +40,28 @@ Output Directory: dist ✅
 **필수 변수:**
 
 ```
-VITE_KAKAO_MAP_APP_KEY = 7b6b514803b58ff1f2087e8bccbfbd7f
+VITE_KAKAO_MAP_APP_KEY = your_kakao_javascript_key
+VITE_PUBLIC_DATA_SERVICE_KEY = your_public_data_service_key
+KAKAO_REST_API_KEY = your_kakao_rest_key
+MONGODB_URI = your_mongodb_connection_string
 
-VITE_PUBLIC_DATA_SERVICE_KEY = eQaqrVvz7HoT3seuAaJ8rW4eNKU6GW%2BfLhDgLw8%2B6G3jtnJ6HqCSpZOoflkqNLy7E4n9VzxmVBg%2FHjQ3lFYRZQ%3D%3D
+# 체크인/점수 설정
+VITE_CHECKIN_RADIUS_METER = 80
+VITE_BASE_CHECKPOINT_SCORE = 100
+VITE_AUTO_CHECKIN_DEFAULT = true
+VITE_AUTO_CHECKIN_INTERVAL_MS = 6000
+VITE_UNYANG_TEST_LAT = 35.56746
+VITE_UNYANG_TEST_LNG = 129.12597
+CHECKPOINT_BASE_SCORE = 100
 
-VITE_API_URL = https://your-project.vercel.app
-
-MONGODB_URI = mongodb+srv://jjchaser29_db_user:soupgil1004@cluster0.a89613a.mongodb.net/jjchaser29_db?retryWrites=true&w=majority
-
-KAKAO_REST_API_KEY = ae254ada75303708017e804c98c90577
+# 선택값: 프론트와 API를 분리 배포할 때만 사용
+# VITE_API_URL = https://your-project.vercel.app
 ```
 
 **⚠️ 중요:**
-- VITE_API_URL은 Vercel 배포 후 자동 생성된 URL로 변경 필요
-- MONGODB_URI: .env.local에서 복사
-- KAKAO_REST_API_KEY: .env.local에서 복사
+- VITE 기본값은 Build 시점에 고정되므로 변경 후 반드시 Redeploy 하세요.
+- VITE_AUTO_CHECKIN_INTERVAL_MS 권장 범위: 3000 ~ 10000
+- 언양고 좌표 정확도 보정 시 VITE_UNYANG_TEST_LAT / VITE_UNYANG_TEST_LNG만 수정하면 됩니다.
 
 ---
 

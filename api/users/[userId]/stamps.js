@@ -5,6 +5,8 @@
 
 import { getUserStamps, addStamp } from '../../lib/db.js'
 
+const DEFAULT_CHECKPOINT_SCORE = Number(process.env.CHECKPOINT_BASE_SCORE) || 100
+
 export default async function handler(req, res) {
   res.setHeader('Access-Control-Allow-Origin', '*')
   res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS')
@@ -26,7 +28,7 @@ export default async function handler(req, res) {
       const stamps = await getUserStamps(userId)
       res.json(stamps)
     } else if (req.method === 'POST') {
-      const { checkpointId, lat, lng, beaconId, timestamp } = req.body
+      const { checkpointId, lat, lng, source, distanceMeter, score, difficulty, altitude, timestamp } = req.body
 
       if (!checkpointId) {
         return res.status(400).json({ error: 'checkpointId가 필요합니다.' })
@@ -36,7 +38,11 @@ export default async function handler(req, res) {
         checkpointId,
         lat: lat || null,
         lng: lng || null,
-        beaconId: beaconId || null,
+        source: source || 'gps-radius',
+        distanceMeter: distanceMeter ?? null,
+        score: Number.isFinite(score) ? score : DEFAULT_CHECKPOINT_SCORE,
+        difficulty: difficulty || null,
+        altitude: altitude ?? null,
         createdAt: timestamp || new Date().toISOString(),
       }
 

@@ -61,6 +61,11 @@
   box-shadow: 0 12px 28px rgba(15, 118, 110, 0.28);
 }
 
+.primary-button.secondary {
+  background: linear-gradient(135deg, #334155, #1e293b);
+  box-shadow: 0 12px 28px rgba(30, 41, 59, 0.22);
+}
+
 .primary-button:hover,
 .stamp-button:hover {
   transform: translateY(-1px);
@@ -120,6 +125,21 @@
   grid-template-columns: minmax(0, 1.25fr) minmax(320px, 0.75fr);
   gap: 20px;
   margin-top: 20px;
+}
+
+.test-menu-panel {
+  margin-top: 20px;
+  padding: 24px 26px;
+}
+
+.test-menu-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.test-menu-actions .primary-button {
+  width: auto;
 }
 
 .panel-heading {
@@ -212,14 +232,6 @@
   gap: 10px;
   flex-wrap: wrap;
   margin-top: 14px;
-}
-
-.beacon-inline {
-  margin-top: 14px;
-  padding: 12px;
-  border: 1px solid var(--border);
-  border-radius: 16px;
-  background: var(--panel-soft);
 }
 
 .map-meta,
@@ -372,203 +384,6 @@
   }
 }
 
-/* Beacon Detector Styles */
-.beacon-detector {
-  margin-top: 20px;
-}
-
-.beacon-detector.compact {
-  margin-top: 0;
-}
-
-.beacon-detector.compact .beacon-header {
-  margin-bottom: 12px;
-}
-
-.beacon-detector.compact .beacon-header h3 {
-  font-size: 1rem;
-}
-
-.beacon-detector.compact .beacon-controls {
-  margin-bottom: 10px;
-}
-
-.beacon-detector.compact .beacon-button {
-  padding: 10px 14px;
-  font-size: 0.9rem;
-}
-
-.beacon-detector.compact .beacon-list {
-  padding: 10px;
-}
-
-.beacon-detector.compact .beacon-list li {
-  padding: 8px;
-  gap: 8px;
-  font-size: 0.85rem;
-}
-
-.beacon-detector .panel-heading {
-  margin-bottom: 16px;
-}
-
-.beacon-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  margin-bottom: 18px;
-}
-
-.beacon-header h3 {
-  margin: 0;
-  font-size: 1.1rem;
-}
-
-.beacon-status {
-  padding: 8px 12px;
-  border-radius: 999px;
-  font-size: 0.8rem;
-  font-weight: 700;
-  text-transform: uppercase;
-}
-
-.beacon-status.idle {
-  background: rgba(107, 114, 128, 0.12);
-  color: #4b5563;
-}
-
-.beacon-status.scanning {
-  background: rgba(34, 197, 94, 0.12);
-  color: #166534;
-  animation: pulse 2s infinite;
-}
-
-.beacon-status.error {
-  background: rgba(220, 38, 38, 0.12);
-  color: #991b1b;
-}
-
-@keyframes pulse {
-  0%,
-  100% {
-    opacity: 1;
-  }
-  50% {
-    opacity: 0.6;
-  }
-}
-
-.beacon-warning {
-  padding: 14px;
-  background: rgba(245, 158, 11, 0.1);
-  border-radius: 14px;
-  border-left: 4px solid #f59e0b;
-}
-
-.beacon-warning p {
-  margin: 6px 0;
-  color: #92400e;
-  font-size: 0.9rem;
-}
-
-.beacon-controls {
-  display: flex;
-  gap: 10px;
-  margin-bottom: 16px;
-}
-
-.beacon-button {
-  padding: 12px 18px;
-  border: none;
-  border-radius: 10px;
-  background: linear-gradient(135deg, #0f766e, #115e59);
-  color: #f8fafc;
-  font-weight: 700;
-  cursor: pointer;
-  transition: all 200ms ease;
-}
-
-.beacon-button:hover {
-  transform: translateY(-1px);
-  box-shadow: 0 8px 20px rgba(15, 118, 110, 0.2);
-}
-
-.beacon-button.stop {
-  background: linear-gradient(135deg, #991b1b, #7f1d1d);
-}
-
-.beacon-error {
-  padding: 14px;
-  background: rgba(239, 68, 68, 0.1);
-  border-radius: 14px;
-  border-left: 4px solid #ef4444;
-}
-
-.beacon-error p {
-  margin: 0;
-  color: #7f1d1d;
-  font-size: 0.9rem;
-}
-
-.beacon-list {
-  padding: 14px;
-  background: rgba(15, 118, 110, 0.05);
-  border-radius: 14px;
-}
-
-.beacon-hint {
-  margin: 0 0 10px;
-  font-size: 0.85rem;
-  color: var(--muted);
-  font-weight: 700;
-}
-
-.beacon-list ul {
-  list-style: none;
-  padding: 0;
-  margin: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-}
-
-.beacon-list li {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  padding: 10px;
-  border-radius: 10px;
-  background: rgba(255, 255, 255, 0.5);
-  font-size: 0.9rem;
-}
-
-.beacon-list strong {
-  color: var(--ink);
-  min-width: 120px;
-}
-
-.beacon-rssi {
-  color: var(--muted);
-  font-size: 0.85rem;
-  margin-left: auto;
-}
-
-.beacon-matched {
-  padding: 4px 8px;
-  border-radius: 6px;
-  background: rgba(34, 197, 94, 0.2);
-  color: #166534;
-  font-weight: 700;
-}
-
-.beacon-unmatched {
-  padding: 4px 8px;
-  border-radius: 6px;
-  background: rgba(107, 114, 128, 0.2);
-  color: #4b5563;
-}
-
 /* User Section Styles */
 .user-section {
   margin-top: 20px;
@@ -604,16 +419,6 @@
 @media (max-width: 720px) {
   .user-info {
     grid-template-columns: 1fr;
-  }
-
-  .beacon-list li {
-    flex-wrap: wrap;
-  }
-
-  .beacon-rssi {
-    margin-left: 0;
-    margin-top: 4px;
-    width: 100%;
   }
 }
 

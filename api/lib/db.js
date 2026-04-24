@@ -6,6 +6,7 @@
 import { MongoClient } from 'mongodb'
 
 const MONGODB_URI = process.env.MONGODB_URI
+const DEFAULT_CHECKPOINT_SCORE = Number(process.env.CHECKPOINT_BASE_SCORE) || 100
 
 if (!MONGODB_URI) {
   throw new Error('MONGODB_URI 환경 변수가 설정되지 않았습니다.')
@@ -84,7 +85,11 @@ export async function addStamp(userId, stamp) {
               checkpointId: stamp.checkpointId,
               lat: stamp.lat || null,
               lng: stamp.lng || null,
-              beaconId: stamp.beaconId || null,
+              source: stamp.source || 'gps-radius',
+              distanceMeter: stamp.distanceMeter ?? null,
+              score: Number.isFinite(stamp.score) ? stamp.score : DEFAULT_CHECKPOINT_SCORE,
+              difficulty: stamp.difficulty || null,
+              altitude: stamp.altitude ?? null,
               createdAt: stamp.createdAt || new Date().toISOString(),
             },
           ],
@@ -161,9 +166,14 @@ export async function getUserProgress(userId) {
     nickname: user.nickname,
     createdAt: user.createdAt,
     totalStamps: record?.stamps?.length ?? 0,
+    totalScore: (record?.stamps ?? []).reduce(
+      (sum, stamp) =>
+        sum + (Number.isFinite(stamp.score) ? stamp.score : DEFAULT_CHECKPOINT_SCORE),
+      0,
+    ),
     completedSections: record?.completedSections ?? [],
     completionRate: record
-      ? Math.round((record.completedSections?.length ?? 0 / 12) * 100)
+      ? Math.round(((record.completedSections?.length ?? 0) / 12) * 100)
       : 0,
   }
 }

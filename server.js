@@ -5,6 +5,7 @@ import path from 'path'
 
 const app = express()
 const PORT = process.env.PORT || 5174
+const DEFAULT_CHECKPOINT_SCORE = Number(process.env.CHECKPOINT_BASE_SCORE) || 100
 
 app.use(cors())
 app.use(express.json())
@@ -111,7 +112,7 @@ app.get('/api/users/:userId/stamps', (req, res) => {
 // 스탐프 기록 추가
 app.post('/api/users/:userId/stamps', (req, res) => {
   const { userId } = req.params
-  const { checkpointId, lat, lng, beaconId, timestamp } = req.body
+  const { checkpointId, lat, lng, source, distanceMeter, score, difficulty, altitude, timestamp } = req.body
 
   if (!checkpointId) {
     return res.status(400).json({ error: 'checkpointId가 필요합니다.' })
@@ -136,7 +137,11 @@ app.post('/api/users/:userId/stamps', (req, res) => {
     checkpointId,
     lat: lat || null,
     lng: lng || null,
-    beaconId: beaconId || null,
+    source: source || 'gps-radius',
+    distanceMeter: distanceMeter ?? null,
+    score: Number.isFinite(score) ? score : DEFAULT_CHECKPOINT_SCORE,
+    difficulty: difficulty || null,
+    altitude: altitude ?? null,
     createdAt: timestamp || new Date().toISOString(),
   }
 
@@ -215,6 +220,11 @@ app.get('/api/users/:userId/progress', (req, res) => {
     nickname: user.nickname,
     createdAt: user.createdAt,
     totalStamps: userRecords?.stamps.length ?? 0,
+    totalScore: (userRecords?.stamps ?? []).reduce(
+      (sum, stamp) =>
+        sum + (Number.isFinite(stamp.score) ? stamp.score : DEFAULT_CHECKPOINT_SCORE),
+      0,
+    ),
     completedSections: userRecords?.completedSections ?? [],
     completionRate: userRecords
       ? Math.round((userRecords.completedSections.length / 12) * 100)

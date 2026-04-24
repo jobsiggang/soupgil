@@ -1,6 +1,6 @@
 # EASYGO
 
-동서 트레일 구간을 시작부터 종점까지 인증하며 기록하는 스탬프 앱입니다. React + Vite 기반으로 구성했고, 카카오맵과 공공데이터 POI API, ESP32 비콘 체크인, **거리 인식 경로 선택**(GPS 거리 임계값 + 구간별 고정 경로 혼합)을 포함합니다.
+동서 트레일 구간을 시작부터 종점까지 인증하며 기록하는 스탬프 앱입니다. React + Vite 기반으로 구성했고, 카카오맵과 공공데이터 POI API, **GPS 반경 기반 체크인 점수 획득**, **거리 인식 경로 선택**(GPS 거리 임계값 + 구간별 고정 경로 혼합)을 포함합니다.
 
 ## 핵심 기능
 
@@ -11,7 +11,10 @@
   - 우회율(detour ratio) 표시로 실제 보행 거리 안내
 - 구간별 고정 GPS 좌표 기반 경로 데이터 (GPX)
 - 공공데이터 POI API XML 응답 파싱
-- ESP32 비콘 체크인 시뮬레이션 버튼
+- GPS 위치 반경 도착 체크인 (+점수 획득)
+- 난이도/고도 기반 체크포인트 차등 점수
+- 실시간 위치 추적 자동 획득 모드 (버튼 없이 체크인)
+- 울산 언양고등학교 테스트 메뉴 (고정 코스 + 현위치 코스)
 - 사용자별 완주/스탬프 기록 백엔드
 
 ## 환경 변수
@@ -23,9 +26,26 @@ VITE_KAKAO_MAP_APP_KEY=your_kakao_javascript_key
 VITE_PUBLIC_DATA_SERVICE_KEY=your_data_go_kr_service_key
 KAKAO_REST_API_KEY=your_kakao_rest_api_key
 
+# 위치 인증/점수 설정
+VITE_CHECKIN_RADIUS_METER=80
+VITE_BASE_CHECKPOINT_SCORE=100
+VITE_AUTO_CHECKIN_DEFAULT=true
+VITE_AUTO_CHECKIN_INTERVAL_MS=6000
+
+# 울산 언양고 테스트 코스 기본 중심 좌표
+VITE_UNYANG_TEST_LAT=35.56746
+VITE_UNYANG_TEST_LNG=129.12597
+
+# 서버(로컬/Vercel API) 기본 점수 fallback
+CHECKPOINT_BASE_SCORE=100
+
 # 선택값: 프론트와 API를 분리 배포할 때만 사용
 # VITE_API_URL=http://localhost:5174
 ```
+
+- 언양고 실제 중심 좌표와 다르면 `VITE_UNYANG_TEST_LAT`, `VITE_UNYANG_TEST_LNG`만 수정하세요.
+- 자동 획득을 기본 ON으로 시작하려면 `VITE_AUTO_CHECKIN_DEFAULT=true`를 유지하세요.
+- 자동 체크 주기는 `VITE_AUTO_CHECKIN_INTERVAL_MS`로 조절하며, 권장 범위는 3000~10000입니다.
 
 ## 실행
 
@@ -118,9 +138,9 @@ Kakao Maps API (지도 렌더링)
 ## 현재 구조
 
 - `src/App.jsx`: 대시보드, 상태 관리, 경로 선택 로직
+- `src/App.jsx`: 대시보드, 상태 관리, 차등 점수 계산, 자동 위치 추적, 테스트 메뉴
 - `src/components/MapPanel.jsx`: 카카오맵 렌더링, 다중 경로 시각화
-- `src/components/StampBoard.jsx`: 체크포인트 카드와 체크인
-- `src/components/BeaconDetector.jsx`: Web Bluetooth 기반 비콘 감지
+- `src/components/StampBoard.jsx`: 체크포인트 카드와 위치 도착 안내
 - `src/services/poiService.js`: 공공데이터 POI 파싱
 - `src/services/poiCache.js`: 구간별 POI 캐시 및 조회
 - `src/services/apiClient.js`: 백엔드 API 연동
@@ -132,6 +152,6 @@ Kakao Maps API (지도 렌더링)
 
 - Kakao Maps JavaScript Key는 **도메인 등록**이 필수입니다 (localhost 포함)
 - REST API Key는 서버에서만 사용됩니다 (CORS 우회 프록시)
-- ESP32 비콘은 Web Bluetooth API 지원 브라우저(Chrome/Edge/Opera)에서만 동작합니다
+- 위치 체크인은 브라우저 위치 권한 허용이 필요합니다
 - POI 데이터는 공공데이터 포털 서비스 승인이 필요합니다
 
