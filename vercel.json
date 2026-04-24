@@ -10,9 +10,5 @@
       "source": "/(.*)",
       "destination": "/index.html"
     }
-  ],
-  "env": {
-    "MONGODB_URI": "@mongodb-uri",
-    "KAKAO_REST_API_KEY": "@kakao-rest-api-key"
-  }
+  ]
 }
