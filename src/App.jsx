@@ -112,19 +112,7 @@ export default function App() {
 
     async function initialize() {
       try {
-        const [trail, userId] = await Promise.all([
-          loadDongseoTrailData(),
-          Promise.resolve(localStorage.getItem('trailUserId') || `user-${Date.now()}`),
-        ])
-
-        if (!localStorage.getItem('trailUserId')) {
-          localStorage.setItem('trailUserId', userId)
-        }
-
-        const [userRes, progressRes] = await Promise.all([
-          registerUser(userId),
-          getUserProgress(userId).catch(() => null),
-        ])
+        const trail = await loadDongseoTrailData()
 
         if (isCancelled) {
           return
@@ -132,8 +120,31 @@ export default function App() {
 
         setTrailData(trail)
         setSelectedSectionId(trail.sections[0]?.id ?? null)
-        setCurrentUser(userRes.user)
-        setUserProgress(progressRes)
+
+        const userId = localStorage.getItem('trailUserId') || `user-${Date.now()}`
+
+        if (!localStorage.getItem('trailUserId')) {
+          localStorage.setItem('trailUserId', userId)
+        }
+
+        try {
+          const [userRes, progressRes] = await Promise.all([
+            registerUser(userId),
+            getUserProgress(userId).catch(() => null),
+          ])
+
+          if (isCancelled) {
+            return
+          }
+
+          setCurrentUser(userRes.user)
+          setUserProgress(progressRes)
+          setBackendError('')
+        } catch (error) {
+          if (!isCancelled) {
+            setBackendError(error.message)
+          }
+        }
       } catch (error) {
         if (!isCancelled) {
           setBackendError(error.message)

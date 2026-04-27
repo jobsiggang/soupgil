@@ -1,17 +1,5 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useRef, useState, useCallback } from 'react'
 import { loadKakaoMaps } from '../lib/loadKakaoMaps'
-
-function getCenter(selectedRoutePath, liveLocation) {
-  if (liveLocation) {
-    return liveLocation
-  }
-
-  if (selectedRoutePath?.length) {
-    return selectedRoutePath[Math.floor(selectedRoutePath.length / 2)]
-  }
-
-  return { lat: 36.54, lng: 126.33 }
-}
 
 export default function MapPanel({
   sections,
@@ -29,109 +17,149 @@ export default function MapPanel({
   isArrived,
 }) {
   const mapRef = useRef(null)
+  const kakaoRef = useRef(null)
+  const mapInstanceRef = useRef(null)
+  const polylinesRef = useRef([])
+  const markersRef = useRef([])
+  const walkingPolylineRef = useRef(null)
+  const liveMarkerRef = useRef(null)
   const [errorMessage, setErrorMessage] = useState('')
+  const [isSatellite, setIsSatellite] = useState(false)
 
+  // Initialize map once
   useEffect(() => {
     const appKey = import.meta.env.VITE_KAKAO_MAP_APP_KEY
-
     if (!appKey) {
       setErrorMessage('카카오맵 키가 없어서 지도를 렌더링하지 못했습니다.')
       return
     }
-
-    if (!mapRef.current || !sections.length) {
-      return
-    }
-
-    let isDisposed = false
+    if (!mapRef.current) return
 
     loadKakaoMaps(appKey)
       .then((kakao) => {
-        if (isDisposed) {
-          return
-        }
-
-        const center = getCenter(selectedRoutePath, liveLocation)
+        kakaoRef.current = kakao
         const map = new kakao.maps.Map(mapRef.current, {
-          center: new kakao.maps.LatLng(center.lat, center.lng),
-          level: 8,
+          center: new kakao.maps.LatLng(36.54, 126.33),
+          level: 9,
         })
-
-        const bounds = new kakao.maps.LatLngBounds()
-
-        sections.forEach((section) => {
-          const routePath = routesMap[section.id]?.detailedPath ?? []
-          if (routePath.length < 2) {
-            return
-          }
-
-          const polylinePath = routePath.map((point) => {
-            const latLng = new kakao.maps.LatLng(point.lat, point.lng)
-            bounds.extend(latLng)
-            return latLng
-          })
-
-          new kakao.maps.Polyline({
-            map,
-            path: polylinePath,
-            strokeWeight: section.id === selectedSectionId ? 7 : 3,
-            strokeColor: section.id === selectedSectionId ? '#0f766e' : '#94a3b8',
-            strokeOpacity: section.id === selectedSectionId ? 0.95 : 0.45,
-            strokeStyle: 'solid',
-          })
-
-          const goalMarker = new kakao.maps.Marker({
-            map,
-            position: new kakao.maps.LatLng(section.endPoint.lat, section.endPoint.lng),
-            title: section.name,
-          })
-
-          kakao.maps.event.addListener(goalMarker, 'click', () => {
-            onSelectSection(section.id)
-          })
-        })
-
-        if (walkingPath?.length > 1) {
-          const walkingPolylinePath = walkingPath.map((point) => {
-            const latLng = new kakao.maps.LatLng(point.lat, point.lng)
-            bounds.extend(latLng)
-            return latLng
-          })
-
-          new kakao.maps.Polyline({
-            map,
-            path: walkingPolylinePath,
-            strokeWeight: 5,
-            strokeColor: '#f97316',
-            strokeOpacity: 0.9,
-            strokeStyle: 'dash',
-          })
-        }
-
-        if (liveLocation) {
-          const liveMarkerPosition = new kakao.maps.LatLng(liveLocation.lat, liveLocation.lng)
-          bounds.extend(liveMarkerPosition)
-          new kakao.maps.Marker({
-            map,
-            position: liveMarkerPosition,
-            title: '현재 위치',
-          })
-        }
-
-        if (!bounds.isEmpty()) {
-          map.setBounds(bounds)
-        }
+        mapInstanceRef.current = map
       })
-      .catch((error) => {
-        if (!isDisposed) {
-          setErrorMessage(error.message)
-        }
+      .catch((error) => setErrorMessage(error.message))
+  }, [])
+
+  // Redraw all section polylines + markers when sections/routesMap/selectedSectionId changes
+  useEffect(() => {
+    const kakao = kakaoRef.current
+    const map = mapInstanceRef.current
+    if (!kakao || !map || !sections.length) return
+
+    // Remove old polylines & markers
+    polylinesRef.current.forEach((p) => p.setMap(null))
+    markersRef.current.forEach((m) => m.setMap(null))
+    polylinesRef.current = []
+    markersRef.current = []
+
+    const allBounds = new kakao.maps.LatLngBounds()
+    const selectedBounds = new kakao.maps.LatLngBounds()
+
+    sections.forEach((section) => {
+      const routePath = routesMap[section.id]?.detailedPath ?? []
+      if (routePath.length < 2) return
+
+      const isSelected = section.id === selectedSectionId
+      const polylinePath = routePath.map((point) => {
+        const latLng = new kakao.maps.LatLng(point.lat, point.lng)
+        allBounds.extend(latLng)
+        if (isSelected) selectedBounds.extend(latLng)
+        return latLng
       })
 
-    return () => {
-      isDisposed = true
+      const polyline = new kakao.maps.Polyline({
+        map,
+        path: polylinePath,
+        strokeWeight: isSelected ? 7 : 3,
+        strokeColor: isSelected ? '#0f766e' : '#94a3b8',
+        strokeOpacity: isSelected ? 0.95 : 0.45,
+        strokeStyle: 'solid',
+      })
+      polylinesRef.current.push(polyline)
+
+      const goalMarker = new kakao.maps.Marker({
+        map,
+        position: new kakao.maps.LatLng(section.endPoint.lat, section.endPoint.lng),
+        title: section.name,
+      })
+      kakao.maps.event.addListener(goalMarker, 'click', () => onSelectSection(section.id))
+      markersRef.current.push(goalMarker)
+    })
+
+    // Zoom to selected section, otherwise show all
+    if (selectedSectionId && !selectedBounds.isEmpty()) {
+      map.setBounds(selectedBounds, 80)
+    } else if (!allBounds.isEmpty()) {
+      map.setBounds(allBounds)
     }
-  }, [liveLocation, onSelectSection, routesMap, sections, selectedRoutePath, selectedSectionId, walkingPath])
+  }, [sections, routesMap, selectedSectionId, onSelectSection])
+
+  // Update walking path overlay
+  useEffect(() => {
+    const kakao = kakaoRef.current
+    const map = mapInstanceRef.current
+    if (!kakao || !map) return
+
+    if (walkingPolylineRef.current) {
+      walkingPolylineRef.current.setMap(null)
+      walkingPolylineRef.current = null
+    }
+
+    if (walkingPath?.length > 1) {
+      walkingPolylineRef.current = new kakao.maps.Polyline({
+        map,
+        path: walkingPath.map((p) => new kakao.maps.LatLng(p.lat, p.lng)),
+        strokeWeight: 5,
+        strokeColor: '#f97316',
+        strokeOpacity: 0.9,
+        strokeStyle: 'dash',
+      })
+    }
+  }, [walkingPath])
+
+  // Update live location marker
+  useEffect(() => {
+    const kakao = kakaoRef.current
+    const map = mapInstanceRef.current
+    if (!kakao || !map) return
+
+    if (liveMarkerRef.current) {
+      liveMarkerRef.current.setMap(null)
+      liveMarkerRef.current = null
+    }
+
+    if (liveLocation) {
+      liveMarkerRef.current = new kakao.maps.Marker({
+        map,
+        position: new kakao.maps.LatLng(liveLocation.lat, liveLocation.lng),
+        title: '현재 위치',
+      })
+    }
+  }, [liveLocation])
+
+  // Toggle satellite/hybrid map type
+  const toggleSatellite = useCallback(() => {
+    const kakao = kakaoRef.current
+    const map = mapInstanceRef.current
+    if (!kakao || !map) return
+
+    setIsSatellite((prev) => {
+      const next = !prev
+      if (next) {
+        map.addOverlayMapTypeId(kakao.maps.MapTypeId.HYBRID)
+      } else {
+        map.removeOverlayMapTypeId(kakao.maps.MapTypeId.HYBRID)
+      }
+      return next
+    })
+  }, [])
 
   return (
     <section className="panel map-panel">
@@ -179,6 +207,9 @@ export default function MapPanel({
       <div className="map-actions">
         <button type="button" className="stamp-button" onClick={onRefreshLocation} disabled={isRefreshingLocation}>
           {isRefreshingLocation ? '위치 갱신 중...' : '현재 위치 갱신'}
+        </button>
+        <button type="button" className={`stamp-button${isSatellite ? ' active' : ''}`} onClick={toggleSatellite}>
+          {isSatellite ? '일반 지도' : '위성 사진'}
         </button>
       </div>
 
