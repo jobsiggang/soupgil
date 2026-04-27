@@ -71,6 +71,108 @@ export const SECTION_ROUTES = {
   },
 }
 
+function toRadians(value) {
+  return (value * Math.PI) / 180
+}
+
+function getDistanceMeter(from, to) {
+  const earthRadiusMeter = 6371000
+  const latDiff = toRadians(to.lat - from.lat)
+  const lngDiff = toRadians(to.lng - from.lng)
+  const fromLat = toRadians(from.lat)
+  const toLat = toRadians(to.lat)
+
+  const halfChord =
+    Math.sin(latDiff / 2) ** 2 +
+    Math.cos(fromLat) * Math.cos(toLat) * Math.sin(lngDiff / 2) ** 2
+
+  return 2 * earthRadiusMeter * Math.atan2(Math.sqrt(halfChord), Math.sqrt(1 - halfChord))
+}
+
+function getPathDistanceMeter(path) {
+  if (!path || path.length < 2) {
+    return 0
+  }
+
+  let total = 0
+  for (let i = 1; i < path.length; i += 1) {
+    total += getDistanceMeter(path[i - 1], path[i])
+  }
+  return Math.round(total)
+}
+
+function findNearestPointIndex(points, target) {
+  if (!points.length) {
+    return -1
+  }
+
+  let nearestIndex = 0
+  let nearestDistance = Number.POSITIVE_INFINITY
+
+  for (let i = 0; i < points.length; i += 1) {
+    const distance = getDistanceMeter(points[i], target)
+    if (distance < nearestDistance) {
+      nearestDistance = distance
+      nearestIndex = i
+    }
+  }
+
+  return nearestIndex
+}
+
+function parseGpxTrackPoints(gpxText) {
+  const xml = new DOMParser().parseFromString(gpxText, 'application/xml')
+  const parserError = xml.querySelector('parsererror')
+  if (parserError) {
+    throw new Error('GPX 파싱에 실패했습니다.')
+  }
+
+  return Array.from(xml.querySelectorAll('trkpt'))
+    .map((node) => ({
+      lat: Number(node.getAttribute('lat')),
+      lng: Number(node.getAttribute('lon')),
+    }))
+    .filter((point) => Number.isFinite(point.lat) && Number.isFinite(point.lng))
+}
+
+export function buildSectionRoutesFromGpx(gpxText, sections, fallbackRoutes = SECTION_ROUTES) {
+  const points = parseGpxTrackPoints(gpxText)
+  if (points.length < 2) {
+    return fallbackRoutes
+  }
+
+  const built = { ...fallbackRoutes }
+
+  sections.forEach((section) => {
+    const startIndex = findNearestPointIndex(points, section.startPoint)
+    const endIndex = findNearestPointIndex(points, section.endPoint)
+
+    if (startIndex < 0 || endIndex < 0) {
+      return
+    }
+
+    const from = Math.min(startIndex, endIndex)
+    const to = Math.max(startIndex, endIndex)
+    const sampledPath = points.slice(from, to + 1)
+
+    if (sampledPath.length < 2) {
+      return
+    }
+
+    const downSampleStep = sampledPath.length > 240 ? Math.ceil(sampledPath.length / 240) : 1
+    const detailedPath = sampledPath.filter((_, index) => index % downSampleStep === 0)
+
+    built[section.id] = {
+      name: section.name,
+      distanceMeters: getPathDistanceMeter(detailedPath),
+      preferredOverCardinal: true,
+      detailedPath,
+    }
+  })
+
+  return built
+}
+
 /**
  * 두 지점 간 거리 계산 (Haversine 공식)
  * @param {number} lat1
@@ -126,8 +228,9 @@ export function selectRouteByThreshold({
   sectionId,
   kakaoPath,
   kakaoDistance,
+  routeMap = SECTION_ROUTES,
 }) {
-  const sectionRoute = SECTION_ROUTES[sectionId]
+  const sectionRoute = routeMap[sectionId]
   const cardinalDistance = calculateDistance(originLat, originLng, destLat, destLng)
   const cardinalDistanceMeters = cardinalDistance * 1000
 

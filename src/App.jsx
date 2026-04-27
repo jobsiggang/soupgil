@@ -1,36 +1,20 @@
-import { useEffect, useMemo, useRef, useState, useTransition } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import './App.css'
 import MapPanel from './components/MapPanel'
-import StampBoard from './components/StampBoard'
-import { initialStampedIds, trailCourse } from './data/trails'
-import { fetchPoiPreview } from './services/poiService'
-import { fetchAllSectionPois, TRAIL_SECTIONS } from './services/poiCache'
 import {
   completeSection,
+  createSectionReview,
   fetchNavigationRoute,
+  fetchSectionReviews,
   getUserProgress,
   recordStamp,
   registerUser,
 } from './services/apiClient'
-import { selectRouteByThreshold, getRouteDescription } from './data/sectionRoutes'
-
-function parseFiniteNumber(value, fallback) {
-  const numeric = Number(value)
-  return Number.isFinite(numeric) ? numeric : fallback
-}
+import { loadDongseoTrailData } from './services/gpxLoader'
 
 function parsePositiveInt(value, fallback) {
   const numeric = Number(value)
   return Number.isFinite(numeric) && numeric > 0 ? Math.round(numeric) : fallback
-}
-
-const CHECKIN_RADIUS_METER = parsePositiveInt(import.meta.env.VITE_CHECKIN_RADIUS_METER, 80)
-const BASE_CHECKPOINT_SCORE = parsePositiveInt(import.meta.env.VITE_BASE_CHECKPOINT_SCORE, 100)
-const AUTO_CHECKIN_INTERVAL_MS = parsePositiveInt(import.meta.env.VITE_AUTO_CHECKIN_INTERVAL_MS, 6000)
-const AUTO_CHECKIN_DEFAULT_ENABLED = import.meta.env.VITE_AUTO_CHECKIN_DEFAULT === 'true'
-const UNYANG_TEST_CENTER = {
-  lat: parseFiniteNumber(import.meta.env.VITE_UNYANG_TEST_LAT, 35.56746),
-  lng: parseFiniteNumber(import.meta.env.VITE_UNYANG_TEST_LNG, 129.12597),
 }
 
 function toRadians(value) {
@@ -51,202 +35,122 @@ function getDistanceMeter(from, to) {
   return 2 * earthRadiusMeter * Math.atan2(Math.sqrt(halfChord), Math.sqrt(1 - halfChord))
 }
 
-function resolveDifficulty(checkpoint) {
-  if (checkpoint.difficulty) {
-    return checkpoint.difficulty
-  }
+const CHECKIN_RADIUS_METER = parsePositiveInt(import.meta.env.VITE_CHECKIN_RADIUS_METER, 80)
+const REVIEW_CERT_DWELL_MS = parsePositiveInt(import.meta.env.VITE_REVIEW_CERT_DWELL_MS, 30000)
+const WALKING_ROUTE_REFRESH_MS = parsePositiveInt(import.meta.env.VITE_WALKING_REFRESH_MS, 20000)
 
-  const altitude = Number.isFinite(checkpoint.altitude) ? checkpoint.altitude : 0
-  const directionCount = checkpoint.directionHints?.length ?? 0
-
-  if (altitude >= 120 || directionCount >= 3) {
-    return 'hard'
-  }
-  if (altitude >= 60 || directionCount >= 2) {
-    return 'medium'
-  }
-  return 'easy'
-}
-
-function getCheckpointScore(checkpoint, baseScore) {
-  const difficulty = resolveDifficulty(checkpoint)
-  const altitude = Number.isFinite(checkpoint.altitude) ? checkpoint.altitude : 0
-
-  const multiplier =
-    difficulty === 'hard' ? 1.5 : difficulty === 'medium' ? 1.25 : 1
-
-  const altitudeBonus = altitude >= 200 ? 40 : altitude >= 120 ? 25 : altitude >= 60 ? 10 : 0
-
-  return Math.round(baseScore * multiplier + altitudeBonus)
-}
-
-function buildSchoolTestCheckpoints(center, label = '울산 언양고등학교') {
-  const candidates = [
-    {
-      id: 'test-unyang-main-gate',
-      title: `${label} 정문`,
-      note: '등교 동선 테스트 지점입니다.',
-      offsetLat: 0.00018,
-      offsetLng: -0.00012,
-      altitude: 42,
-      difficulty: 'easy',
-      directionHints: ['정문', '운동장 방향'],
-    },
-    {
-      id: 'test-unyang-track',
-      title: `${label} 운동장`,
-      note: '운동장 중앙 위치 체크 테스트 지점입니다.',
-      offsetLat: -0.00008,
-      offsetLng: 0.00015,
-      altitude: 58,
-      difficulty: 'medium',
-      directionHints: ['체육관 방면', '본관 방면'],
-    },
-    {
-      id: 'test-unyang-back-yard',
-      title: `${label} 후문`,
-      note: '후문/골목 방향 이동 시 테스트 지점입니다.',
-      offsetLat: -0.00019,
-      offsetLng: -0.00009,
-      altitude: 76,
-      difficulty: 'hard',
-      directionHints: ['후문', '주택가 방향', '우회 동선'],
-    },
-  ]
-
-  return candidates.map((point, index) => ({
-    ...point,
-    poiId: `TEST-${index + 1}`,
-    section: `${label} 테스트`,
-    lat: center.lat + point.offsetLat,
-    lng: center.lng + point.offsetLng,
-    type: 'TEST',
-  }))
-}
-
-function mapPoiToCheckpoint(section, item) {
-  return {
-    id: `poi-${item.poiId}`,
-    poiId: item.poiId,
-    title: item.name,
-    lat: item.lat,
-    lng: item.lng,
-    section: section.name,
-    note: item.description || '설명 정보 없음',
-    directionHints: item.destinations ?? [],
-    difficulty: 'medium',
-  }
-}
-
-function App() {
-  const [stampedIds, setStampedIds] = useState(initialStampedIds)
-  const [selectedCheckpoint, setSelectedCheckpoint] = useState(
-    trailCourse.checkpoints[0],
-  )
-  const [apiPreview, setApiPreview] = useState(null)
-  const [apiError, setApiError] = useState('')
-  const [isFetchingPreview, setIsFetchingPreview] = useState(false)
-  const [isPending, startTransition] = useTransition()
+export default function App() {
+  const [trailData, setTrailData] = useState({ sections: [], routesMap: {}, summary: null })
+  const [selectedSectionId, setSelectedSectionId] = useState(null)
 
   const [currentUser, setCurrentUser] = useState(null)
   const [userProgress, setUserProgress] = useState(null)
   const [backendError, setBackendError] = useState('')
 
-  const [poiBySection, setPoiBySection] = useState({})
-  const [isLoadingPois, setIsLoadingPois] = useState(false)
-  const [navigationPath, setNavigationPath] = useState([])
-  const [navigationInfo, setNavigationInfo] = useState(null)
-
-  const [isCheckingLocation, setIsCheckingLocation] = useState(false)
-  const [checkInMessage, setCheckInMessage] = useState('')
-  const [checkInError, setCheckInError] = useState('')
-  const [autoCheckInEnabled, setAutoCheckInEnabled] = useState(
-    AUTO_CHECKIN_DEFAULT_ENABLED,
-  )
   const [liveLocation, setLiveLocation] = useState(null)
+  const [locationError, setLocationError] = useState('')
+  const [isRefreshingLocation, setIsRefreshingLocation] = useState(false)
 
-  const [isTestMenuOpen, setIsTestMenuOpen] = useState(false)
-  const [isTestMode, setIsTestMode] = useState(false)
-  const [testCheckpoints, setTestCheckpoints] = useState(() =>
-    buildSchoolTestCheckpoints(UNYANG_TEST_CENTER),
-  )
-  const [isBuildingNearbyTest, setIsBuildingNearbyTest] = useState(false)
+  const [walkingPath, setWalkingPath] = useState([])
+  const [walkingInfo, setWalkingInfo] = useState(null)
+  const [walkingError, setWalkingError] = useState('')
 
-  const autoCheckThrottleRef = useRef({
+  const [sectionReviews, setSectionReviews] = useState([])
+  const [isLoadingReviews, setIsLoadingReviews] = useState(false)
+  const [reviewContent, setReviewContent] = useState('')
+  const [reviewCourseNote, setReviewCourseNote] = useState('')
+  const [reviewRating, setReviewRating] = useState(5)
+  const [reviewImageData, setReviewImageData] = useState('')
+  const [reviewMessage, setReviewMessage] = useState('')
+  const [reviewError, setReviewError] = useState('')
+  const [isSubmittingReview, setIsSubmittingReview] = useState(false)
+
+  const [arrivalStartedAt, setArrivalStartedAt] = useState(null)
+  const [dwellElapsedMs, setDwellElapsedMs] = useState(0)
+
+  const walkingRouteThrottleRef = useRef({
     at: 0,
-    key: '',
+    lat: 0,
+    lng: 0,
+    sectionId: '',
   })
 
-  const dynamicCheckpoints = useMemo(() => {
-    const flattened = TRAIL_SECTIONS.flatMap((section) => {
-      const items = poiBySection[section.id]?.items ?? []
-      return items.map((item) => mapPoiToCheckpoint(section, item))
-    }).filter((checkpoint) => checkpoint.lat && checkpoint.lng)
+  const sections = trailData.sections
+  const routesMap = trailData.routesMap
 
-    return flattened
-  }, [poiBySection])
+  const selectedSection = useMemo(
+    () => sections.find((section) => section.id === selectedSectionId) ?? null,
+    [sections, selectedSectionId],
+  )
 
-  const checkpoints = useMemo(() => {
-    if (isTestMode) {
-      return testCheckpoints
+  const selectedRoutePath = useMemo(
+    () => routesMap[selectedSectionId]?.detailedPath ?? [],
+    [routesMap, selectedSectionId],
+  )
+
+  const completedSectionIds = useMemo(
+    () => new Set((userProgress?.completedSections ?? []).map((item) => item.sectionId)),
+    [userProgress],
+  )
+
+  const distanceToGoal = useMemo(() => {
+    if (!liveLocation || !selectedSection?.endPoint) {
+      return null
     }
-    if (dynamicCheckpoints.length > 0) {
-      return dynamicCheckpoints
-    }
-    return trailCourse.checkpoints
-  }, [dynamicCheckpoints, isTestMode, testCheckpoints])
 
-  const checkpointScoreMap = useMemo(() => {
-    return checkpoints.reduce((acc, checkpoint) => {
-      acc[checkpoint.id] = getCheckpointScore(checkpoint, BASE_CHECKPOINT_SCORE)
-      return acc
-    }, {})
-  }, [checkpoints])
+    return getDistanceMeter(liveLocation, selectedSection.endPoint)
+  }, [liveLocation, selectedSection])
+
+  const isArrived = distanceToGoal !== null && distanceToGoal <= CHECKIN_RADIUS_METER
+  const isDwellSatisfied = dwellElapsedMs >= REVIEW_CERT_DWELL_MS
+  const isSelectedSectionCompleted = selectedSectionId
+    ? completedSectionIds.has(selectedSectionId)
+    : false
 
   useEffect(() => {
-    if (!selectedCheckpoint || !checkpoints.some((it) => it.id === selectedCheckpoint.id)) {
-      setSelectedCheckpoint(checkpoints[0] ?? null)
-    }
-  }, [checkpoints, selectedCheckpoint])
+    let isCancelled = false
 
-  useEffect(() => {
-    setStampedIds((current) =>
-      current.filter((checkpointId) => checkpoints.some((cp) => cp.id === checkpointId)),
-    )
-  }, [checkpoints])
-
-  useEffect(() => {
     async function initialize() {
-      let userId = localStorage.getItem('trailUserId')
-
-      if (!userId) {
-        userId = `user-${Date.now()}`
-        localStorage.setItem('trailUserId', userId)
-      }
-
       try {
-        const userRes = await registerUser(userId)
-        setCurrentUser(userRes.user)
+        const [trail, userId] = await Promise.all([
+          loadDongseoTrailData(),
+          Promise.resolve(localStorage.getItem('trailUserId') || `user-${Date.now()}`),
+        ])
 
-        const progressRes = await getUserProgress(userId)
+        if (!localStorage.getItem('trailUserId')) {
+          localStorage.setItem('trailUserId', userId)
+        }
+
+        const [userRes, progressRes] = await Promise.all([
+          registerUser(userId),
+          getUserProgress(userId).catch(() => null),
+        ])
+
+        if (isCancelled) {
+          return
+        }
+
+        setTrailData(trail)
+        setSelectedSectionId(trail.sections[0]?.id ?? null)
+        setCurrentUser(userRes.user)
         setUserProgress(progressRes)
       } catch (error) {
-        setBackendError(error.message)
+        if (!isCancelled) {
+          setBackendError(error.message)
+        }
       }
-
-      await loadAllPois()
     }
 
     initialize()
+
+    return () => {
+      isCancelled = true
+    }
   }, [])
 
   useEffect(() => {
-    if (!autoCheckInEnabled) {
-      return undefined
-    }
-
     if (!navigator.geolocation) {
-      setCheckInError('이 브라우저는 위치 추적을 지원하지 않습니다.')
+      setLocationError('이 브라우저는 위치 추적을 지원하지 않습니다.')
       return undefined
     }
 
@@ -256,9 +160,10 @@ function App() {
           lat: position.coords.latitude,
           lng: position.coords.longitude,
         })
+        setLocationError('')
       },
       (error) => {
-        setCheckInError(`실시간 위치 추적 실패: ${error.message}`)
+        setLocationError(`실시간 위치 추적 실패: ${error.message}`)
       },
       {
         enableHighAccuracy: true,
@@ -270,180 +175,128 @@ function App() {
     return () => {
       navigator.geolocation.clearWatch(watchId)
     }
-  }, [autoCheckInEnabled])
-
-  async function loadAllPois() {
-    setIsLoadingPois(true)
-
-    try {
-      const serviceKey = import.meta.env.VITE_PUBLIC_DATA_SERVICE_KEY
-      const allPois = await fetchAllSectionPois({
-        serviceKey,
-        trailName: trailCourse.name,
-        sections: TRAIL_SECTIONS,
-      })
-      setPoiBySection(allPois)
-    } catch (error) {
-      console.warn('POI 로드 실패:', error)
-    } finally {
-      setIsLoadingPois(false)
-    }
-  }
-
-  const completedCount = stampedIds.length
-  const progressRate = checkpoints.length
-    ? Math.round((completedCount / checkpoints.length) * 100)
-    : 0
-  const remainingCount = Math.max(checkpoints.length - completedCount, 0)
-  const totalScore = stampedIds.reduce(
-    (sum, checkpointId) => sum + (checkpointScoreMap[checkpointId] ?? BASE_CHECKPOINT_SCORE),
-    0,
-  )
-
-  const nextCheckpoint = useMemo(
-    () => checkpoints.find((checkpoint) => !stampedIds.includes(checkpoint.id)) ?? null,
-    [checkpoints, stampedIds],
-  )
+  }, [])
 
   useEffect(() => {
-    async function loadNavigationPath() {
-      if (!selectedCheckpoint || !nextCheckpoint || selectedCheckpoint.id === nextCheckpoint.id) {
-        setNavigationPath([])
-        setNavigationInfo(null)
+    if (!selectedSectionId) {
+      return
+    }
+
+    let isCancelled = false
+
+    async function loadReviews() {
+      setIsLoadingReviews(true)
+      setReviewError('')
+
+      try {
+        const response = await fetchSectionReviews(selectedSectionId)
+        if (!isCancelled) {
+          setSectionReviews(response.reviews ?? [])
+        }
+      } catch (error) {
+        if (!isCancelled) {
+          setReviewError(error.message)
+          setSectionReviews([])
+        }
+      } finally {
+        if (!isCancelled) {
+          setIsLoadingReviews(false)
+        }
+      }
+    }
+
+    loadReviews()
+
+    return () => {
+      isCancelled = true
+    }
+  }, [selectedSectionId])
+
+  useEffect(() => {
+    if (!isArrived) {
+      setArrivalStartedAt(null)
+      setDwellElapsedMs(0)
+      return
+    }
+
+    setArrivalStartedAt((current) => current ?? Date.now())
+  }, [isArrived, selectedSectionId])
+
+  useEffect(() => {
+    if (!arrivalStartedAt) {
+      return undefined
+    }
+
+    const timerId = window.setInterval(() => {
+      setDwellElapsedMs(Date.now() - arrivalStartedAt)
+    }, 1000)
+
+    return () => window.clearInterval(timerId)
+  }, [arrivalStartedAt])
+
+  useEffect(() => {
+    async function loadWalkingRoute() {
+      if (!liveLocation || !selectedSection?.endPoint) {
+        setWalkingPath([])
+        setWalkingInfo(null)
+        setWalkingError('')
         return
       }
 
+      const movedMeter = getDistanceMeter(liveLocation, {
+        lat: walkingRouteThrottleRef.current.lat,
+        lng: walkingRouteThrottleRef.current.lng,
+      })
+      const now = Date.now()
+      const sameTarget = walkingRouteThrottleRef.current.sectionId === selectedSection.id
+
+      if (
+        sameTarget &&
+        now - walkingRouteThrottleRef.current.at < WALKING_ROUTE_REFRESH_MS &&
+        movedMeter < 20
+      ) {
+        return
+      }
+
+      walkingRouteThrottleRef.current = {
+        at: now,
+        lat: liveLocation.lat,
+        lng: liveLocation.lng,
+        sectionId: selectedSection.id,
+      }
+
       try {
-        let sectionId = null
-        if (nextCheckpoint.section) {
-          const matchingSection = TRAIL_SECTIONS.find((s) => s.name === nextCheckpoint.section)
-          sectionId = matchingSection?.id ?? null
-        }
-
-        const kakaoRoute = await fetchNavigationRoute({
-          originLat: selectedCheckpoint.lat,
-          originLng: selectedCheckpoint.lng,
-          destLat: nextCheckpoint.lat,
-          destLng: nextCheckpoint.lng,
+        const route = await fetchNavigationRoute({
+          originLat: liveLocation.lat,
+          originLng: liveLocation.lng,
+          destLat: selectedSection.endPoint.lat,
+          destLng: selectedSection.endPoint.lng,
         })
 
-        const selectedRoute = selectRouteByThreshold({
-          originLat: selectedCheckpoint.lat,
-          originLng: selectedCheckpoint.lng,
-          destLat: nextCheckpoint.lat,
-          destLng: nextCheckpoint.lng,
-          sectionId,
-          kakaoPath: kakaoRoute.path ?? [],
-          kakaoDistance: kakaoRoute.summary?.distanceMeter ?? null,
-        })
-
-        setNavigationPath(selectedRoute.path)
-        setNavigationInfo({
-          ...kakaoRoute.summary,
-          source: selectedRoute.source,
-          detourRatio: selectedRoute.detourRatio,
-          distanceMeters: selectedRoute.distanceMeters,
-          description: getRouteDescription(selectedRoute),
-        })
+        setWalkingPath(route.path ?? [])
+        setWalkingInfo(route.summary ?? null)
+        setWalkingError('')
       } catch (error) {
-        setNavigationPath([])
-        setNavigationInfo(null)
+        setWalkingPath([])
+        setWalkingInfo(null)
+        setWalkingError('도보 경로를 불러오지 못했습니다.')
       }
     }
 
-    loadNavigationPath()
-  }, [selectedCheckpoint, nextCheckpoint])
+    loadWalkingRoute()
+  }, [liveLocation, selectedSection])
 
-  useEffect(() => {
-    if (!autoCheckInEnabled || !liveLocation || !checkpoints.length) {
+  async function refreshProgress() {
+    if (!currentUser?.userId) {
       return
     }
-
-    const now = Date.now()
-    const fingerprint = `${liveLocation.lat.toFixed(5)}:${liveLocation.lng.toFixed(5)}:${stampedIds.length}`
-
-    if (
-      autoCheckThrottleRef.current.key === fingerprint &&
-      now - autoCheckThrottleRef.current.at < AUTO_CHECKIN_INTERVAL_MS
-    ) {
-      return
-    }
-
-    autoCheckThrottleRef.current = {
-      at: now,
-      key: fingerprint,
-    }
-
-    applyLocationCheckIn(liveLocation, {
-      source: 'gps-auto',
-      silentMiss: true,
-    })
-  }, [autoCheckInEnabled, liveLocation, checkpoints, stampedIds])
-
-  async function handlePreviewLoad() {
-    const serviceKey = import.meta.env.VITE_PUBLIC_DATA_SERVICE_KEY
-
-    setApiError('')
-    setIsFetchingPreview(true)
 
     try {
-      const preview = await fetchPoiPreview({
-        serviceKey,
-        trailName: trailCourse.name,
-      })
-
-      startTransition(() => {
-        setApiPreview(preview)
-      })
-    } catch (error) {
-      setApiError(error.message)
-    } finally {
-      setIsFetchingPreview(false)
+      const progressRes = await getUserProgress(currentUser.userId)
+      setUserProgress(progressRes)
+    } catch {
+      // no-op
     }
-  }
-
-  function updateSectionCompletion(checkpointId, stampedSnapshot = stampedIds) {
-    if (!currentUser?.userId) {
-      return
-    }
-
-    const checkpoint = checkpoints.find((item) => item.id === checkpointId)
-    if (!checkpoint?.section) {
-      return
-    }
-
-    const sectionPoints = checkpoints.filter((item) => item.section === checkpoint.section)
-    const sectionComplete = sectionPoints.every((item) => stampedSnapshot.includes(item.id))
-
-    if (sectionComplete) {
-      completeSection(currentUser.userId, checkpoint.section).catch((error) => {
-        console.warn('구간 완주 기록 실패:', error)
-      })
-    }
-  }
-
-  function persistStamp(checkpoint, locationData = {}, source = 'gps-manual') {
-    if (!currentUser?.userId) {
-      return
-    }
-
-    const score = checkpointScoreMap[checkpoint.id] ?? BASE_CHECKPOINT_SCORE
-
-    recordStamp(currentUser.userId, checkpoint.id, {
-      lat: locationData.lat,
-      lng: locationData.lng,
-      source,
-      distanceMeter: locationData.distanceMeter,
-      score,
-      difficulty: resolveDifficulty(checkpoint),
-      altitude: checkpoint.altitude ?? null,
-    }).catch((error) => {
-      console.warn('스탬프 기록 실패:', error)
-    })
-
-    getUserProgress(currentUser.userId)
-      .then((progressRes) => setUserProgress(progressRes))
-      .catch(() => {})
   }
 
   async function getCurrentPosition() {
@@ -461,368 +314,341 @@ function App() {
     })
   }
 
-  function applyLocationCheckIn(currentLocation, options = {}) {
-    const { source = 'gps-manual', silentMiss = false } = options
-
-    const unstamped = checkpoints.filter((checkpoint) => !stampedIds.includes(checkpoint.id))
-    if (!unstamped.length) {
-      if (!silentMiss) {
-        setCheckInMessage('모든 체크포인트를 이미 획득했습니다.')
-      }
-      return
-    }
-
-    const withDistance = unstamped.map((checkpoint) => ({
-      checkpoint,
-      distanceMeter: getDistanceMeter(currentLocation, checkpoint),
-    }))
-
-    const nearby = withDistance.filter((item) => item.distanceMeter <= CHECKIN_RADIUS_METER)
-
-    if (!nearby.length) {
-      if (!silentMiss) {
-        const nearest = [...withDistance].sort((a, b) => a.distanceMeter - b.distanceMeter)[0]
-        setCheckInMessage(
-          `획득 실패: 가장 가까운 지점(${nearest.checkpoint.title})까지 ${Math.round(nearest.distanceMeter)}m 남았습니다.`,
-        )
-      }
-      return
-    }
-
-    const earnedIds = nearby.map((item) => item.checkpoint.id)
-    const updatedStampedIds = Array.from(new Set([...stampedIds, ...earnedIds]))
-
-    setStampedIds(updatedStampedIds)
-
-    let earnedScore = 0
-
-    nearby.forEach((item) => {
-      const score = checkpointScoreMap[item.checkpoint.id] ?? BASE_CHECKPOINT_SCORE
-      earnedScore += score
-
-      persistStamp(
-        item.checkpoint,
-        {
-          lat: currentLocation.lat,
-          lng: currentLocation.lng,
-          distanceMeter: Math.round(item.distanceMeter),
-        },
-        source,
-      )
-      updateSectionCompletion(item.checkpoint.id, updatedStampedIds)
-    })
-
-    setCheckInMessage(
-      `${nearby.length}개 지점 도착 인증 완료! +${earnedScore.toLocaleString()}점 획득 (${CHECKIN_RADIUS_METER}m 반경)`,
-    )
-  }
-
-  async function handleLocationCheckIn() {
-    if (!checkpoints.length) {
-      return
-    }
-
-    setCheckInMessage('')
-    setCheckInError('')
-    setIsCheckingLocation(true)
+  async function handleRefreshLocation() {
+    setIsRefreshingLocation(true)
+    setLocationError('')
 
     try {
       const position = await getCurrentPosition()
-      const currentLocation = {
+      setLiveLocation({
         lat: position.coords.latitude,
         lng: position.coords.longitude,
-      }
-
-      setLiveLocation(currentLocation)
-      applyLocationCheckIn(currentLocation, { source: 'gps-manual', silentMiss: false })
+      })
     } catch (error) {
-      setCheckInError(error?.message || '위치 확인 중 오류가 발생했습니다.')
+      setLocationError(error.message)
     } finally {
-      setIsCheckingLocation(false)
+      setIsRefreshingLocation(false)
     }
   }
 
-  async function handleBuildNearbyTestCourse() {
-    setIsBuildingNearbyTest(true)
-    setCheckInError('')
+  function handleReviewImageChange(event) {
+    const file = event.target.files?.[0]
+    if (!file) {
+      setReviewImageData('')
+      return
+    }
+
+    if (!file.type.startsWith('image/')) {
+      setReviewError('이미지 파일만 업로드할 수 있습니다.')
+      return
+    }
+
+    if (file.size > 1024 * 1024 * 2) {
+      setReviewError('이미지 용량은 2MB 이하만 지원합니다.')
+      return
+    }
+
+    const reader = new FileReader()
+    reader.onload = () => {
+      setReviewError('')
+      setReviewImageData(String(reader.result || ''))
+    }
+    reader.onerror = () => {
+      setReviewError('이미지 파일을 읽는 중 오류가 발생했습니다.')
+    }
+    reader.readAsDataURL(file)
+  }
+
+  async function handleSubmitReview(event) {
+    event.preventDefault()
+
+    if (!selectedSection || !currentUser?.userId) {
+      return
+    }
+
+    setReviewError('')
+    setReviewMessage('')
+    setIsSubmittingReview(true)
 
     try {
-      const position = await getCurrentPosition()
-      const center = {
-        lat: position.coords.latitude,
-        lng: position.coords.longitude,
+      const response = await createSectionReview(selectedSection.id, {
+        userId: currentUser.userId,
+        nickname: currentUser.nickname,
+        checkpointId: `goal-${selectedSection.id}`,
+        rating: reviewRating,
+        content: reviewContent,
+        courseNote: reviewCourseNote,
+        images: reviewImageData ? [reviewImageData] : [],
+        lat: liveLocation?.lat,
+        lng: liveLocation?.lng,
+      })
+
+      setSectionReviews((current) => [response.review, ...current])
+
+      if (isArrived && isDwellSatisfied && !isSelectedSectionCompleted) {
+        await Promise.all([
+          completeSection(currentUser.userId, selectedSection.id),
+          recordStamp(currentUser.userId, `goal-${selectedSection.id}`, {
+            lat: liveLocation?.lat,
+            lng: liveLocation?.lng,
+            source: 'review-certification',
+            distanceMeter: distanceToGoal ? Math.round(distanceToGoal) : 0,
+            score: 100,
+            difficulty: 'medium',
+            altitude: null,
+          }),
+        ])
+
+        await refreshProgress()
+        setReviewMessage('후기 등록과 함께 인증을 획득했습니다.')
+      } else if (!isArrived) {
+        setReviewMessage(`후기는 등록됐지만 인증은 도착 반경 ${CHECKIN_RADIUS_METER}m 이내에서만 가능합니다.`)
+      } else if (!isDwellSatisfied) {
+        setReviewMessage(`후기는 등록됐지만 인증은 ${Math.floor(REVIEW_CERT_DWELL_MS / 1000)}초 체류 후 가능합니다.`)
+      } else {
+        setReviewMessage('후기를 등록했습니다. 이 구간은 이미 인증 완료 상태입니다.')
       }
-      const generated = buildSchoolTestCheckpoints(center, '현위치 테스트 캠퍼스')
-      setTestCheckpoints(generated)
-      setIsTestMode(true)
-      setStampedIds([])
-      setSelectedCheckpoint(generated[0])
-      setCheckInMessage('현위치 기반 테스트 코스를 생성했습니다.')
+
+      setReviewContent('')
+      setReviewCourseNote('')
+      setReviewRating(5)
+      setReviewImageData('')
     } catch (error) {
-      setCheckInError(error?.message || '현위치 테스트 코스 생성에 실패했습니다.')
+      setReviewError(error.message)
     } finally {
-      setIsBuildingNearbyTest(false)
+      setIsSubmittingReview(false)
     }
   }
 
-  function handleEnableUnyangTestCourse() {
-    const generated = buildSchoolTestCheckpoints(UNYANG_TEST_CENTER)
-    setTestCheckpoints(generated)
-    setIsTestMode(true)
-    setStampedIds([])
-    setSelectedCheckpoint(generated[0])
-    setCheckInMessage('울산 언양고등학교 테스트 코스를 활성화했습니다.')
-  }
-
-  function handleDisableTestCourse() {
-    setIsTestMode(false)
-    setCheckInMessage('테스트 코스를 종료하고 기본 트레일로 돌아왔습니다.')
-  }
+  const totalDistanceKm = trailData.summary
+    ? (trailData.summary.totalDistanceMeter / 1000).toFixed(1)
+    : '-'
 
   return (
     <main className="app-shell">
       <section className="hero-panel panel">
         <div className="hero-copy">
-          <p className="eyebrow">EASYGO TRAIL PASS</p>
-          <h1>{trailCourse.theme}</h1>
-          <p className="hero-description">{trailCourse.description}</p>
-
+          <p className="eyebrow">DONGSEO TRAIL</p>
+          <h1>1~12, 47~55 전체구간</h1>
+          <p className="hero-description">
+            제공된 GPX 전체 경로만 사용해 구성한 동서트레일 전용 화면입니다. 각 구간을 선택하면
+            구간 경로, 도착 정보, 후기, 실시간 도보 경로만 확인할 수 있습니다.
+          </p>
           <div className="hero-actions">
             <button
               type="button"
               className="primary-button"
-              onClick={handlePreviewLoad}
-              disabled={isFetchingPreview}
+              onClick={handleRefreshLocation}
+              disabled={isRefreshingLocation}
             >
-              {isFetchingPreview ? 'POI 조회 중...' : '공공데이터 POI 불러오기'}
-            </button>
-            <button
-              type="button"
-              className="primary-button secondary"
-              onClick={() => setIsTestMenuOpen((prev) => !prev)}
-            >
-              {isTestMenuOpen ? '테스트 메뉴 닫기' : '테스트 메뉴 열기'}
+              {isRefreshingLocation ? '위치 갱신 중...' : '현재 위치 새로고침'}
             </button>
             <span className="subtle-text">
-              키가 없으면 API 호출은 건너뛰고 샘플 체크포인트가 표시됩니다.
+              인증 조건: 반경 {CHECKIN_RADIUS_METER}m 도착 + {Math.floor(REVIEW_CERT_DWELL_MS / 1000)}초 체류 + 후기 작성
             </span>
           </div>
         </div>
 
         <div className="hero-stats">
           <article>
-            <span>완료율</span>
-            <strong>{progressRate}%</strong>
+            <span>총 구간</span>
+            <strong>{sections.length || '-'}개</strong>
           </article>
           <article>
-            <span>남은 인증</span>
-            <strong>{remainingCount}개</strong>
+            <span>완료 구간</span>
+            <strong>{completedSectionIds.size}개</strong>
           </article>
           <article>
-            <span>누적 점수</span>
-            <strong>{(userProgress?.totalScore ?? totalScore).toLocaleString()}점</strong>
+            <span>총 거리</span>
+            <strong>{totalDistanceKm}km</strong>
           </article>
           <article>
-            <span>기본 점수</span>
-            <strong>{BASE_CHECKPOINT_SCORE}점</strong>
-          </article>
-          <article>
-            <span>획득 반경</span>
-            <strong>{CHECKIN_RADIUS_METER}m</strong>
-          </article>
-          <article>
-            <span>구간 진행</span>
-            <strong>
-              {userProgress?.completedSections?.length ?? 0}/{TRAIL_SECTIONS.length}
-            </strong>
+            <span>선택 구간</span>
+            <strong>{selectedSection?.name ?? '불러오는 중'}</strong>
           </article>
         </div>
       </section>
 
-      {isTestMenuOpen ? (
-        <section className="panel test-menu-panel">
-          <div className="panel-heading">
-            <div>
-              <p className="eyebrow">테스트 메뉴</p>
-              <h2>울산 언양고등학교 테스트</h2>
-            </div>
-            <span className="status-chip">{isTestMode ? '테스트 코스 활성' : '테스트 코스 비활성'}</span>
-          </div>
-
-          <div className="test-menu-actions">
-            <button type="button" className="primary-button" onClick={handleEnableUnyangTestCourse}>
-              언양고 테스트 코스 활성화
-            </button>
-            <button
-              type="button"
-              className="primary-button secondary"
-              onClick={handleBuildNearbyTestCourse}
-              disabled={isBuildingNearbyTest}
-            >
-              {isBuildingNearbyTest ? '현위치 테스트 생성 중...' : '현위치 기반 테스트 코스 생성'}
-            </button>
-            <button
-              type="button"
-              className="primary-button secondary"
-              onClick={handleDisableTestCourse}
-              disabled={!isTestMode}
-            >
-              테스트 코스 종료
-            </button>
-          </div>
-
-          <p className="subtle-text">
-            언양고 좌표 중심 테스트 코스가 기본 제공됩니다. 학교 안에서 자동 획득 모드를 켜면 버튼 없이 점수를 획득할 수 있습니다.
-          </p>
-        </section>
-      ) : null}
-
       <section className="overview-grid">
         <MapPanel
-          checkpoints={checkpoints}
-          selectedCheckpoint={selectedCheckpoint}
-          apiPreview={apiPreview}
-          nextCheckpoint={nextCheckpoint}
-          navigationPath={navigationPath}
-          navigationInfo={navigationInfo}
-          onLocationCheckIn={handleLocationCheckIn}
-          isCheckingLocation={isCheckingLocation}
-          autoCheckInEnabled={autoCheckInEnabled}
-          onToggleAutoCheckIn={() => setAutoCheckInEnabled((prev) => !prev)}
+          sections={sections}
+          selectedSectionId={selectedSectionId}
+          onSelectSection={setSelectedSectionId}
+          routesMap={routesMap}
+          selectedRoutePath={selectedRoutePath}
           liveLocation={liveLocation}
+          walkingPath={walkingPath}
+          walkingInfo={walkingInfo}
+          walkingError={walkingError}
+          onRefreshLocation={handleRefreshLocation}
+          isRefreshingLocation={isRefreshingLocation}
+          distanceToGoal={distanceToGoal}
+          isArrived={isArrived}
         />
 
         <section className="panel progress-panel">
           <div className="panel-heading">
             <div>
-              <p className="eyebrow">진행 현황</p>
-              <h2>{isTestMode ? '언양고 테스트 코스' : trailCourse.name}</h2>
+              <p className="eyebrow">구간 상세</p>
+              <h2>{selectedSection?.name ?? '구간 로드 중'}</h2>
             </div>
-            <span className="status-chip">{autoCheckInEnabled ? '자동 획득 ON' : '자동 획득 OFF'}</span>
+            <span className="status-chip">
+              {isSelectedSectionCompleted ? '인증 완료' : '인증 대기'}
+            </span>
           </div>
 
-          <div className="progress-bar" aria-hidden="true">
-            <div style={{ width: `${progressRate}%` }} />
-          </div>
+          {selectedSection ? (
+            <>
+              <div className="progress-summary">
+                <article>
+                  <span>구간 거리</span>
+                  <strong>{(selectedSection.distanceMeters / 1000).toFixed(1)}km</strong>
+                </article>
+                <article>
+                  <span>도착 지점 거리</span>
+                  <strong>
+                    {distanceToGoal === null ? '위치 대기' : `${Math.round(distanceToGoal)}m`}
+                  </strong>
+                </article>
+                <article>
+                  <span>체류 시간</span>
+                  <strong>
+                    {Math.floor(dwellElapsedMs / 1000)}초 / {Math.floor(REVIEW_CERT_DWELL_MS / 1000)}초
+                  </strong>
+                </article>
+                <article>
+                  <span>도착 상태</span>
+                  <strong>{isArrived ? '도착 반경 진입' : `반경 ${CHECKIN_RADIUS_METER}m 필요`}</strong>
+                </article>
+              </div>
 
-          <div className="progress-summary">
-            <article>
-              <span>다음 체크포인트</span>
-              <strong>{nextCheckpoint?.title ?? '모든 인증 완료'}</strong>
-            </article>
-            <article>
-              <span>선택 지점</span>
-              <strong>{selectedCheckpoint?.title ?? '-'}</strong>
-            </article>
-            <article>
-              <span>위치 인증 반경</span>
-              <strong>{CHECKIN_RADIUS_METER}m</strong>
-            </article>
-            <article>
-              <span>자동 획득 주기</span>
-              <strong>{Math.round(AUTO_CHECKIN_INTERVAL_MS / 1000)}초</strong>
-            </article>
-          </div>
+              <div className="preview-card section-info-card">
+                <h3>구간 정보</h3>
+                <p>{selectedSection.description}</p>
+                <dl className="preview-meta">
+                  <div>
+                    <dt>시작 좌표</dt>
+                    <dd>
+                      {selectedSection.startPoint.lat.toFixed(5)}, {selectedSection.startPoint.lng.toFixed(5)}
+                    </dd>
+                  </div>
+                  <div>
+                    <dt>종료 좌표</dt>
+                    <dd>
+                      {selectedSection.endPoint.lat.toFixed(5)}, {selectedSection.endPoint.lng.toFixed(5)}
+                    </dd>
+                  </div>
+                </dl>
+              </div>
+            </>
+          ) : null}
 
-          {checkInMessage ? <p className="subtle-text">{checkInMessage}</p> : null}
-          {checkInError ? <p className="error-text">{checkInError}</p> : null}
+          <div className="preview-card section-review-card">
+            <h3>구간 후기</h3>
+            <form className="review-form" onSubmit={handleSubmitReview}>
+              <label>
+                별점
+                <select value={reviewRating} onChange={(event) => setReviewRating(Number(event.target.value))}>
+                  <option value={5}>5점</option>
+                  <option value={4}>4점</option>
+                  <option value={3}>3점</option>
+                  <option value={2}>2점</option>
+                  <option value={1}>1점</option>
+                </select>
+              </label>
+              <label>
+                후기
+                <textarea
+                  value={reviewContent}
+                  onChange={(event) => setReviewContent(event.target.value)}
+                  placeholder="구간 상태, 난이도, 주의 지점을 남겨주세요."
+                  required
+                  minLength={5}
+                />
+              </label>
+              <label>
+                코스 메모
+                <input
+                  type="text"
+                  value={reviewCourseNote}
+                  onChange={(event) => setReviewCourseNote(event.target.value)}
+                  placeholder="예: 중간 지점 우회로는 좌측이 편함"
+                />
+              </label>
+              <label>
+                후기 사진(선택, 2MB 이하)
+                <input type="file" accept="image/*" onChange={handleReviewImageChange} />
+              </label>
+              {reviewImageData ? (
+                <img className="review-image-preview" src={reviewImageData} alt="후기 이미지 미리보기" />
+              ) : null}
+              <button type="submit" className="stamp-button" disabled={isSubmittingReview}>
+                {isSubmittingReview ? '후기 등록 중...' : '후기 등록 및 인증 시도'}
+              </button>
+            </form>
 
-          <div className="preview-card">
-            <h3>공공데이터 응답 스냅샷</h3>
-            <p>
-              {apiPreview?.items?.[0]?.description ??
-                '아직 API를 호출하지 않았습니다. 환경 변수 설정 후 버튼을 눌러 실제 표지판 데이터를 확인하세요.'}
-            </p>
-            {apiPreview?.items?.[0] ? (
-              <dl className="preview-meta">
-                <div>
-                  <dt>POI ID</dt>
-                  <dd>{apiPreview.items[0].poiId}</dd>
-                </div>
-                <div>
-                  <dt>목적지</dt>
-                  <dd>
-                    {[
-                      apiPreview.items[0].destination1,
-                      apiPreview.items[0].destination2,
-                      apiPreview.items[0].destination3,
-                    ]
-                      .filter(Boolean)
-                      .join(' / ') || '정보 없음'}
-                  </dd>
-                </div>
-              </dl>
-            ) : null}
-            {apiError ? <p className="error-text">{apiError}</p> : null}
-            {isPending ? (
-              <p className="subtle-text">응답 UI를 반영하는 중입니다.</p>
-            ) : null}
+            {reviewMessage ? <p className="subtle-text">{reviewMessage}</p> : null}
+            {reviewError ? <p className="error-text">{reviewError}</p> : null}
+            {locationError ? <p className="error-text">{locationError}</p> : null}
+            {backendError ? <p className="error-text">{backendError}</p> : null}
+            {isLoadingReviews ? <p className="subtle-text">후기 불러오는 중...</p> : null}
+
+            <ul className="section-review-list">
+              {sectionReviews.map((review) => (
+                <li key={review._id}>
+                  <div className="section-review-header">
+                    <strong>{review.nickname}</strong>
+                    <span>{'★'.repeat(review.rating || 5)}</span>
+                  </div>
+                  <p>{review.content}</p>
+                  {review.courseNote ? <p className="subtle-text">코스 메모: {review.courseNote}</p> : null}
+                  {Array.isArray(review.images) && review.images.length > 0 ? (
+                    <div className="review-image-grid">
+                      {review.images.map((imageSrc, index) => (
+                        <img key={`${review._id}-${index}`} src={imageSrc} alt="후기 첨부" />
+                      ))}
+                    </div>
+                  ) : null}
+                  <small>{new Date(review.createdAt).toLocaleString('ko-KR')}</small>
+                </li>
+              ))}
+            </ul>
           </div>
         </section>
       </section>
 
-      <StampBoard
-        checkpoints={checkpoints}
-        stampedIds={stampedIds}
-        selectedCheckpointId={selectedCheckpoint?.id}
-        onSelect={setSelectedCheckpoint}
-        scoreByCheckpoint={checkpointScoreMap}
-        radiusMeter={CHECKIN_RADIUS_METER}
-      />
-
       <section className="panel user-section">
         <div className="panel-heading">
           <div>
-            <p className="eyebrow">사용자 정보</p>
-            <h2>계정</h2>
+            <p className="eyebrow">사용자</p>
+            <h2>인증 현황</h2>
           </div>
-          <span className="status-chip">{currentUser ? '연결됨' : '대기 중'}</span>
+          <span className="status-chip">{currentUser ? '연결됨' : '연결 중'}</span>
         </div>
 
         {currentUser ? (
           <div className="user-info">
             <article>
-              <span>사용자명</span>
+              <span>닉네임</span>
               <strong>{currentUser.nickname}</strong>
             </article>
             <article>
-              <span>등록일</span>
-              <strong>{new Date(currentUser.createdAt).toLocaleDateString('ko-KR')}</strong>
-            </article>
-            <article>
-              <span>완주 구간</span>
-              <strong>
-                {userProgress?.completedSections?.length ?? 0}/{TRAIL_SECTIONS.length}
-              </strong>
+              <span>누적 인증 구간</span>
+              <strong>{completedSectionIds.size}개</strong>
             </article>
             <article>
               <span>누적 스탬프</span>
-              <strong>{userProgress?.totalStamps ?? stampedIds.length}</strong>
+              <strong>{userProgress?.totalStamps ?? 0}개</strong>
             </article>
             <article>
-              <span>누적 점수</span>
-              <strong>{(userProgress?.totalScore ?? totalScore).toLocaleString()}점</strong>
+              <span>생성일</span>
+              <strong>{new Date(currentUser.createdAt).toLocaleDateString('ko-KR')}</strong>
             </article>
           </div>
         ) : (
-          <p>사용자 등록 중...</p>
+          <p className="subtle-text">사용자 정보를 불러오는 중입니다.</p>
         )}
-
-        {backendError ? <p className="error-text">백엔드 동기화 오류: {backendError}</p> : null}
-        {isLoadingPois ? <p className="subtle-text">POI 데이터 로드 중...</p> : null}
-        {Object.keys(poiBySection).length > 0 && !isTestMode ? (
-          <p className="subtle-text">
-            {Object.keys(poiBySection).length}개 구간, 총{' '}
-            {Object.values(poiBySection).reduce(
-              (sum, sec) => sum + (sec.items?.length ?? 0),
-              0,
-            )}
-            개 POI 로드됨
-          </p>
-        ) : null}
       </section>
     </main>
   )
 }
-
-export default App

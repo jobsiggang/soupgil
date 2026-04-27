@@ -234,6 +234,29 @@
   margin-top: 14px;
 }
 
+.section-chip-list {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-top: 12px;
+}
+
+.section-chip {
+  border: 1px solid var(--border);
+  background: #fff;
+  color: var(--ink);
+  border-radius: 999px;
+  padding: 8px 12px;
+  cursor: pointer;
+  font-weight: 600;
+}
+
+.section-chip.active {
+  border-color: rgba(29, 78, 216, 0.35);
+  background: rgba(29, 78, 216, 0.1);
+  color: #1e3a8a;
+}
+
 .map-meta,
 .progress-summary {
   grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -258,6 +281,91 @@
   padding: 20px;
   border-radius: 22px;
   background: var(--panel-soft);
+}
+
+.section-info-card,
+.section-review-card {
+  border: 1px solid rgba(15, 23, 42, 0.05);
+}
+
+.section-review-card {
+  margin-top: 16px;
+}
+
+.review-form {
+  display: grid;
+  gap: 10px;
+  margin-top: 10px;
+}
+
+.review-form label {
+  display: grid;
+  gap: 6px;
+  color: var(--muted);
+  font-size: 0.9rem;
+}
+
+.review-form textarea,
+.review-form input,
+.review-form select {
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 10px;
+  font: inherit;
+}
+
+.review-form textarea {
+  min-height: 90px;
+  resize: vertical;
+}
+
+.section-review-list {
+  list-style: none;
+  padding: 0;
+  margin: 14px 0 0;
+  display: grid;
+  gap: 10px;
+}
+
+.section-review-list li {
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  padding: 10px 12px;
+  background: #fff;
+}
+
+.review-image-preview {
+  width: 100%;
+  max-height: 220px;
+  object-fit: cover;
+  border-radius: 12px;
+  border: 1px solid var(--border);
+}
+
+.review-image-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.review-image-grid img {
+  width: 100%;
+  height: 120px;
+  object-fit: cover;
+  border-radius: 10px;
+  border: 1px solid var(--border);
+}
+
+.section-review-list p {
+  margin: 6px 0;
+}
+
+.section-review-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
 }
 
 .preview-card p,

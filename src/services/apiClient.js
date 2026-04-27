@@ -105,3 +105,27 @@ export async function fetchNavigationRoute({
 
   return response.json()
 }
+
+export async function fetchSectionReviews(sectionId) {
+  const response = await fetch(toApiUrl(`/api/sections/${sectionId}/reviews`))
+
+  if (!response.ok) {
+    throw new Error(`후기 조회 실패: ${response.status}`)
+  }
+
+  return response.json()
+}
+
+export async function createSectionReview(sectionId, payload) {
+  const response = await fetch(toApiUrl(`/api/sections/${sectionId}/reviews`), {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  })
+
+  if (!response.ok) {
+    throw new Error(`후기 등록 실패: ${response.status}`)
+  }
+
+  return response.json()
+}

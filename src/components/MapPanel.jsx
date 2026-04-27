@@ -1,29 +1,35 @@
 import { useEffect, useRef, useState } from 'react'
 import { loadKakaoMaps } from '../lib/loadKakaoMaps'
 
-function getMapCenter(checkpoint) {
-  return {
-    lat: checkpoint?.lat ?? 35.10531,
-    lng: checkpoint?.lng ?? 129.03202,
+function getCenter(selectedRoutePath, liveLocation) {
+  if (liveLocation) {
+    return liveLocation
   }
+
+  if (selectedRoutePath?.length) {
+    return selectedRoutePath[Math.floor(selectedRoutePath.length / 2)]
+  }
+
+  return { lat: 36.54, lng: 126.33 }
 }
 
 export default function MapPanel({
-  checkpoints,
-  selectedCheckpoint,
-  apiPreview,
-  nextCheckpoint,
-  navigationPath,
-  navigationInfo,
-  onLocationCheckIn,
-  isCheckingLocation,
-  autoCheckInEnabled,
-  onToggleAutoCheckIn,
+  sections,
+  selectedSectionId,
+  onSelectSection,
+  routesMap,
+  selectedRoutePath,
   liveLocation,
+  walkingPath,
+  walkingInfo,
+  walkingError,
+  onRefreshLocation,
+  isRefreshingLocation,
+  distanceToGoal,
+  isArrived,
 }) {
   const mapRef = useRef(null)
   const [errorMessage, setErrorMessage] = useState('')
-  const [routeError, setRouteError] = useState('')
 
   useEffect(() => {
     const appKey = import.meta.env.VITE_KAKAO_MAP_APP_KEY
@@ -33,7 +39,7 @@ export default function MapPanel({
       return
     }
 
-    if (!mapRef.current) {
+    if (!mapRef.current || !sections.length) {
       return
     }
 
@@ -45,71 +51,76 @@ export default function MapPanel({
           return
         }
 
-        const center = getMapCenter(selectedCheckpoint)
+        const center = getCenter(selectedRoutePath, liveLocation)
         const map = new kakao.maps.Map(mapRef.current, {
           center: new kakao.maps.LatLng(center.lat, center.lng),
-          level: 9,
+          level: 8,
         })
 
-        const linePath = checkpoints.map(
-          (checkpoint) => new kakao.maps.LatLng(checkpoint.lat, checkpoint.lng),
-        )
+        const bounds = new kakao.maps.LatLngBounds()
 
-        const fallbackPolyline = new kakao.maps.Polyline({
-          map,
-          path: linePath,
-          strokeWeight: 5,
-          strokeColor: '#94a3b8',
-          strokeOpacity: 0.5,
-          strokeStyle: 'shortdash',
-        })
-
-        if (navigationPath?.length > 1) {
-          const routePath = navigationPath.map(
-            (point) => new kakao.maps.LatLng(point.lat, point.lng),
-          )
-
-          // 경로 소스에 따라 색상과 스타일 결정
-          let strokeColor = '#0f766e' // 기본: Kakao (검정-초록)
-          let strokeWeight = 6
-          let strokeOpacity = 0.95
-
-          if (navigationInfo?.source === 'gpx') {
-            strokeColor = '#2563eb' // 파란색: 등산로(고정)
-          } else if (navigationInfo?.source === 'cardinal') {
-            strokeColor = '#64748b' // 회색: 직선
-            strokeOpacity = 0.6
+        sections.forEach((section) => {
+          const routePath = routesMap[section.id]?.detailedPath ?? []
+          if (routePath.length < 2) {
+            return
           }
+
+          const polylinePath = routePath.map((point) => {
+            const latLng = new kakao.maps.LatLng(point.lat, point.lng)
+            bounds.extend(latLng)
+            return latLng
+          })
 
           new kakao.maps.Polyline({
             map,
-            path: routePath,
-            strokeWeight,
-            strokeColor,
-            strokeOpacity,
+            path: polylinePath,
+            strokeWeight: section.id === selectedSectionId ? 7 : 3,
+            strokeColor: section.id === selectedSectionId ? '#0f766e' : '#94a3b8',
+            strokeOpacity: section.id === selectedSectionId ? 0.95 : 0.45,
             strokeStyle: 'solid',
           })
-          fallbackPolyline.setMap(null)
-          setRouteError('')
-        } else {
-          setRouteError('내비 경로를 불러오지 못해 직선 경로로 표시합니다.')
-        }
 
-        checkpoints.forEach((checkpoint) => {
-          const marker = new kakao.maps.Marker({
-            position: new kakao.maps.LatLng(checkpoint.lat, checkpoint.lng),
+          const goalMarker = new kakao.maps.Marker({
             map,
+            position: new kakao.maps.LatLng(section.endPoint.lat, section.endPoint.lng),
+            title: section.name,
           })
 
-          if (checkpoint.id === selectedCheckpoint?.id) {
-            const overlay = new kakao.maps.CustomOverlay({
-              position: marker.getPosition(),
-              content: `<div style="padding:8px 10px;background:#111827;color:#f8fafc;border-radius:10px;font-size:12px;font-weight:700;box-shadow:0 10px 30px rgba(15,23,42,0.25);">${checkpoint.title}</div>`,
-              yAnchor: 2,
-            })
-            overlay.setMap(map)
-          }
+          kakao.maps.event.addListener(goalMarker, 'click', () => {
+            onSelectSection(section.id)
+          })
         })
+
+        if (walkingPath?.length > 1) {
+          const walkingPolylinePath = walkingPath.map((point) => {
+            const latLng = new kakao.maps.LatLng(point.lat, point.lng)
+            bounds.extend(latLng)
+            return latLng
+          })
+
+          new kakao.maps.Polyline({
+            map,
+            path: walkingPolylinePath,
+            strokeWeight: 5,
+            strokeColor: '#f97316',
+            strokeOpacity: 0.9,
+            strokeStyle: 'dash',
+          })
+        }
+
+        if (liveLocation) {
+          const liveMarkerPosition = new kakao.maps.LatLng(liveLocation.lat, liveLocation.lng)
+          bounds.extend(liveMarkerPosition)
+          new kakao.maps.Marker({
+            map,
+            position: liveMarkerPosition,
+            title: '현재 위치',
+          })
+        }
+
+        if (!bounds.isEmpty()) {
+          map.setBounds(bounds)
+        }
       })
       .catch((error) => {
         if (!isDisposed) {
@@ -120,31 +131,16 @@ export default function MapPanel({
     return () => {
       isDisposed = true
     }
-  }, [checkpoints, navigationPath, selectedCheckpoint])
-
-  function openKakaoDirection() {
-    if (!selectedCheckpoint || !nextCheckpoint) {
-      return
-    }
-
-    const fromName = encodeURIComponent(selectedCheckpoint.title)
-    const toName = encodeURIComponent(nextCheckpoint.title)
-    const url = `https://map.kakao.com/link/from/${fromName},${selectedCheckpoint.lat},${selectedCheckpoint.lng}/to/${toName},${nextCheckpoint.lat},${nextCheckpoint.lng}`
-    window.open(url, '_blank', 'noopener,noreferrer')
-  }
-
-  const previewItem = apiPreview?.items?.[0]
+  }, [liveLocation, onSelectSection, routesMap, sections, selectedRoutePath, selectedSectionId, walkingPath])
 
   return (
     <section className="panel map-panel">
       <div className="panel-heading">
         <div>
           <p className="eyebrow">라이브 지도</p>
-          <h2>카카오맵 구간 뷰</h2>
+          <h2>동서트레일 전체구간</h2>
         </div>
-        <span className="status-chip">
-          {selectedCheckpoint ? `${selectedCheckpoint.section}` : '선택 없음'}
-        </span>
+        <span className="status-chip">{isArrived ? '도착 반경 진입' : '이동 중'}</span>
       </div>
 
       <div className="map-shell">
@@ -153,66 +149,53 @@ export default function MapPanel({
           <div className="map-fallback">
             <strong>지도 대기 중</strong>
             <p>{errorMessage}</p>
-            <p>`.env`에 `VITE_KAKAO_MAP_APP_KEY`를 추가하면 실제 지도가 표시됩니다.</p>
           </div>
         ) : null}
       </div>
 
       <div className="map-meta">
         <div>
-          <span className="meta-label">선택 좌표</span>
+          <span className="meta-label">선택 구간</span>
+          <strong>{sections.find((section) => section.id === selectedSectionId)?.name ?? '-'}</strong>
+        </div>
+        <div>
+          <span className="meta-label">도착지 거리</span>
+          <strong>{distanceToGoal === null ? '위치 대기' : `${Math.round(distanceToGoal)}m`}</strong>
+        </div>
+        <div>
+          <span className="meta-label">도보 경로</span>
           <strong>
-            {selectedCheckpoint
-              ? `${selectedCheckpoint.lat.toFixed(6)}, ${selectedCheckpoint.lng.toFixed(6)}`
-              : '-'}
+            {walkingInfo ? `${(walkingInfo.distanceMeter / 1000).toFixed(1)}km / ${Math.round(walkingInfo.durationSecond / 60)}분` : '대기 중'}
           </strong>
         </div>
         <div>
-          <span className="meta-label">경로 정보</span>
-          {navigationInfo?.description ? (
-            <strong>{navigationInfo.description}</strong>
-          ) : (
-            <strong>경로 없음</strong>
-          )}
-        </div>
-        <div>
-          <span className="meta-label">API 미리보기</span>
-          <strong>{previewItem?.placeName ?? '아직 조회 안 함'}</strong>
-        </div>
-        <div>
-          <span className="meta-label">실시간 위치</span>
+          <span className="meta-label">현재 위치</span>
           <strong>
-            {liveLocation
-              ? `${liveLocation.lat.toFixed(6)}, ${liveLocation.lng.toFixed(6)}`
-              : '아직 수신 안 됨'}
+            {liveLocation ? `${liveLocation.lat.toFixed(5)}, ${liveLocation.lng.toFixed(5)}` : '위치 수신 전'}
           </strong>
         </div>
       </div>
 
       <div className="map-actions">
-        <button
-          type="button"
-          className="stamp-button"
-          onClick={onLocationCheckIn}
-          disabled={isCheckingLocation}
-        >
-          {isCheckingLocation ? '현재 위치 확인 중...' : '현재 위치로 점수 획득'}
-        </button>
-        <button type="button" className="stamp-button" onClick={onToggleAutoCheckIn}>
-          {autoCheckInEnabled ? '자동 획득 끄기' : '자동 획득 켜기'}
-        </button>
-        <button type="button" className="stamp-button" onClick={openKakaoDirection}>
-          카카오맵 길찾기 열기
+        <button type="button" className="stamp-button" onClick={onRefreshLocation} disabled={isRefreshingLocation}>
+          {isRefreshingLocation ? '위치 갱신 중...' : '현재 위치 갱신'}
         </button>
       </div>
 
-      {navigationInfo ? (
-        <p className="subtle-text">
-          경로 길이 {(navigationInfo.distanceMeter / 1000).toFixed(1)}km, 예상 시간{' '}
-          {Math.round(navigationInfo.durationSecond / 60)}분
-        </p>
-      ) : null}
-      {routeError ? <p className="subtle-text">{routeError}</p> : null}
+      <div className="section-chip-list">
+        {sections.map((section) => (
+          <button
+            key={section.id}
+            type="button"
+            className={`section-chip ${section.id === selectedSectionId ? 'active' : ''}`}
+            onClick={() => onSelectSection(section.id)}
+          >
+            {section.number}구간
+          </button>
+        ))}
+      </div>
+
+      {walkingError ? <p className="subtle-text">{walkingError}</p> : null}
     </section>
   )
 }

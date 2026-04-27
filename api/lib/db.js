@@ -177,3 +177,51 @@ export async function getUserProgress(userId) {
       : 0,
   }
 }
+
+export async function getSectionReviews(sectionId, limit = 20) {
+  const db = await getDB()
+  const reviews = await db
+    .collection('sectionReviews')
+    .find({ sectionId })
+    .sort({ createdAt: -1 })
+    .limit(limit)
+    .toArray()
+
+  return reviews.map((review) => ({
+    ...review,
+    _id: review._id.toString(),
+  }))
+}
+
+export async function addSectionReview({
+  sectionId,
+  userId,
+  nickname,
+  checkpointId,
+  rating,
+  content,
+  courseNote,
+  images,
+  location,
+}) {
+  const db = await getDB()
+
+  const review = {
+    sectionId,
+    userId,
+    nickname: nickname || '익명',
+    checkpointId: checkpointId || null,
+    rating: Number.isFinite(rating) ? Math.max(1, Math.min(5, rating)) : 5,
+    content,
+    courseNote: courseNote || '',
+    images: Array.isArray(images) ? images : [],
+    location: location || null,
+    createdAt: new Date().toISOString(),
+  }
+
+  const result = await db.collection('sectionReviews').insertOne(review)
+  return {
+    ...review,
+    _id: result.insertedId.toString(),
+  }
+}
