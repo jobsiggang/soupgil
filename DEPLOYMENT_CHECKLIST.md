@@ -82,7 +82,7 @@ VITE_API_URL = https://easygo-backend.railway.app
 Variables 탭:
 
 ```
-KAKAO_REST_API_KEY = <카카오 REST API Key 삭붙이기>
+VITE_KAKAO_REST_API_KEY = <카카오 REST API Key 삭붙이기>
 NODE_ENV = production
 ```
 
@@ -209,7 +209,7 @@ railway logs --follow
 
 - [ ] 민감한 키가 코드에 하드코딩되지 않았는지 확인
   ```bash
-  grep -r "KAKAO_REST_API_KEY" src/
+  grep -r "VITE_KAKAO_REST_API_KEY" src/
   # 결과: "No matches" → ✅ 안전
   ```
 

@@ -39,7 +39,7 @@ function getDistanceMeter(from, to) {
 const CHECKIN_RADIUS_METER = parsePositiveInt(import.meta.env.VITE_CHECKIN_RADIUS_METER, 80)
 const REVIEW_CERT_DWELL_MS = parsePositiveInt(import.meta.env.VITE_REVIEW_CERT_DWELL_MS, 30000)
 const WALKING_ROUTE_REFRESH_MS = parsePositiveInt(import.meta.env.VITE_WALKING_REFRESH_MS, 20000)
-const KAKAO_REST_API_KEY = (import.meta.env.VITE_KAKAO_REST_API_KEY || '').trim()
+const VITE_KAKAO_REST_API_KEY = (import.meta.env.VITE_KAKAO_REST_API_KEY || '').trim()
 const KAKAO_REDIRECT_URI = (
   import.meta.env.VITE_KAKAO_REDIRECT_URI || `${window.location.origin}/auth/kakao/callback`
 ).trim()
@@ -463,14 +463,14 @@ export default function App() {
   function getKakaoLoginUrl() {
     const params = new URLSearchParams({
       response_type: 'code',
-      client_id: KAKAO_REST_API_KEY,
+      client_id: VITE_KAKAO_REST_API_KEY,
       redirect_uri: KAKAO_REDIRECT_URI,
     })
     return `https://kauth.kakao.com/oauth/authorize?${params.toString()}`
   }
 
   function handleKakaoLogin() {
-    if (!KAKAO_REST_API_KEY) {
+    if (!VITE_KAKAO_REST_API_KEY) {
       setAuthError('VITE_KAKAO_REST_API_KEY가 비어 있어 로그인 URL을 만들 수 없습니다.')
       return
     }

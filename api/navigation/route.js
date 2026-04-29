@@ -14,7 +14,7 @@ export default async function handler(req, res) {
 
   if (req.method === 'GET') {
     const { originLat, originLng, destLat, destLng } = req.query
-    const restApiKey = process.env.KAKAO_REST_API_KEY
+    const restApiKey = process.env.VITE_KAKAO_REST_API_KEY
 
     if (!originLat || !originLng || !destLat || !destLng) {
       return res.status(400).json({ error: 'origin/destination 좌표가 필요합니다.' })
@@ -22,7 +22,7 @@ export default async function handler(req, res) {
 
     if (!restApiKey) {
       return res.status(503).json({
-        error: 'KAKAO_REST_API_KEY가 설정되지 않았습니다.',
+        error: 'VITE_KAKAO_REST_API_KEY가 설정되지 않았습니다.',
       })
     }
 

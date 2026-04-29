@@ -24,7 +24,7 @@
 ```bash
 VITE_KAKAO_MAP_APP_KEY=your_kakao_javascript_key
 VITE_PUBLIC_DATA_SERVICE_KEY=your_data_go_kr_service_key
-KAKAO_REST_API_KEY=your_kakao_rest_api_key
+VITE_KAKAO_REST_API_KEY=your_VITE_KAKAO_REST_API_KEY
 
 # 위치 인증/점수 설정
 VITE_CHECKIN_RADIUS_METER=80

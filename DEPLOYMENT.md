@@ -86,7 +86,7 @@ VITE_API_URL=<백엔드 URL>  # 예: https://easygo-backend.railway.app
 Railway 프로젝트 Settings → Variables:
 
 ```
-KAKAO_REST_API_KEY=<카카오 REST API key>
+VITE_KAKAO_REST_API_KEY=<카카오 REST API key>
 PORT=3000 (자동 할당)
 NODE_ENV=production
 ```

@@ -2,6 +2,7 @@ import express from 'express'
 import cors from 'cors'
 import fs from 'fs'
 import path from 'path'
+import { randomUUID } from 'crypto'
 
 const app = express()
 const PORT = process.env.PORT || 5174
@@ -14,6 +15,39 @@ app.use(express.json())
 const DATA_DIR = 'data'
 const USERS_FILE = path.join(DATA_DIR, 'users.json')
 const RECORDS_FILE = path.join(DATA_DIR, 'records.json')
+const authSessions = new Map()
+
+function stripWrappingQuotes(value) {
+  if (typeof value !== 'string') {
+    return ''
+  }
+  return value.trim().replace(/^['"]|['"]$/g, '')
+}
+
+function resolveKakaoRestApiKey() {
+  return stripWrappingQuotes(process.env.KAKAO_REST_API_KEY || process.env.VITE_KAKAO_REST_API_KEY)
+}
+
+function resolveKakaoRedirectUri(req, redirectUriFromBody) {
+  if (redirectUriFromBody) {
+    return stripWrappingQuotes(String(redirectUriFromBody))
+  }
+
+  const fromEnv = stripWrappingQuotes(process.env.KAKAO_REDIRECT_URI || process.env.VITE_KAKAO_REDIRECT_URI)
+  if (fromEnv) {
+    return fromEnv
+  }
+
+  return `${req.protocol}://${req.get('host')}/auth/kakao/callback`
+}
+
+function extractBearerToken(req) {
+  const header = req.headers.authorization || ''
+  if (!header.startsWith('Bearer ')) {
+    return ''
+  }
+  return header.slice(7).trim()
+}
 
 function loadLocalEnv(filePath = '.env.local') {
   if (!fs.existsSync(filePath)) {
@@ -232,6 +266,129 @@ app.get('/api/users/:userId/progress', (req, res) => {
   })
 })
 
+// 카카오 OAuth 인가 코드 교환
+app.post('/api/auth/kakao/exchange', async (req, res) => {
+  const { code, redirectUri } = req.body || {}
+  const restApiKey = resolveKakaoRestApiKey()
+
+  if (!code) {
+    return res.status(400).json({ error: '인가 코드(code)가 필요합니다.' })
+  }
+
+  if (!restApiKey) {
+    return res.status(503).json({ error: 'KAKAO_REST_API_KEY가 설정되지 않았습니다.' })
+  }
+
+  try {
+    const tokenBody = new URLSearchParams({
+      grant_type: 'authorization_code',
+      client_id: restApiKey,
+      redirect_uri: resolveKakaoRedirectUri(req, redirectUri),
+      code: String(code),
+    })
+
+    const clientSecret = stripWrappingQuotes(process.env.KAKAO_CLIENT_SECRET)
+    if (clientSecret) {
+      tokenBody.set('client_secret', clientSecret)
+    }
+
+    const tokenResponse = await fetch('https://kauth.kakao.com/oauth/token', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/x-www-form-urlencoded;charset=utf-8',
+      },
+      body: tokenBody.toString(),
+    })
+
+    const tokenPayload = await tokenResponse.json()
+    if (!tokenResponse.ok || !tokenPayload.access_token) {
+      return res.status(tokenResponse.status || 500).json({
+        error: '카카오 토큰 발급 실패',
+        detail: tokenPayload,
+      })
+    }
+
+    const profileResponse = await fetch('https://kapi.kakao.com/v2/user/me', {
+      headers: {
+        Authorization: `Bearer ${tokenPayload.access_token}`,
+      },
+    })
+
+    const profilePayload = await profileResponse.json()
+    if (!profileResponse.ok || !profilePayload.id) {
+      return res.status(profileResponse.status || 500).json({
+        error: '카카오 사용자 조회 실패',
+        detail: profilePayload,
+      })
+    }
+
+    const kakaoId = String(profilePayload.id)
+    const userId = `kakao-${kakaoId}`
+    const nickname =
+      profilePayload.kakao_account?.profile?.nickname ||
+      profilePayload.properties?.nickname ||
+      `사용자${Math.floor(Math.random() * 10000)}`
+
+    const users = readUsers()
+    const existing = users[userId]
+    const nextUser = existing
+      ? {
+          ...existing,
+          nickname,
+          kakaoId,
+          lastLoginAt: new Date().toISOString(),
+        }
+      : {
+          userId,
+          nickname,
+          kakaoId,
+          createdAt: new Date().toISOString(),
+          lastLoginAt: new Date().toISOString(),
+          trails: {},
+        }
+
+    users[userId] = nextUser
+    writeUsers(users)
+
+    const sessionToken = randomUUID()
+    authSessions.set(sessionToken, {
+      userId,
+      issuedAt: new Date().toISOString(),
+    })
+
+    return res.status(200).json({
+      token: sessionToken,
+      user: nextUser,
+    })
+  } catch (error) {
+    return res.status(500).json({
+      error: '카카오 로그인 처리 중 오류',
+      detail: error.message,
+    })
+  }
+})
+
+// 현재 로그인 사용자 조회
+app.get('/api/auth/me', (req, res) => {
+  const token = extractBearerToken(req)
+  if (!token) {
+    return res.status(401).json({ error: '인증 토큰이 필요합니다.' })
+  }
+
+  const session = authSessions.get(token)
+  if (!session?.userId) {
+    return res.status(401).json({ error: '유효하지 않은 토큰입니다.' })
+  }
+
+  const users = readUsers()
+  const user = users[session.userId]
+  if (!user) {
+    return res.status(404).json({ error: '사용자를 찾을 수 없습니다.' })
+  }
+
+  return res.json({ user })
+})
+
 // 헬스 체크
 app.get('/health', (req, res) => {
   res.json({ status: 'ok', timestamp: new Date().toISOString() })
@@ -240,7 +397,7 @@ app.get('/health', (req, res) => {
 // 카카오 길찾기 API를 프록시해 브라우저에서 실제 경로를 폴리라인으로 그릴 수 있게 한다.
 app.get('/api/navigation/route', async (req, res) => {
   const { originLat, originLng, destLat, destLng } = req.query
-  const restApiKey = process.env.KAKAO_REST_API_KEY
+  const restApiKey = process.env.VITE_KAKAO_REST_API_KEY
 
   if (!originLat || !originLng || !destLat || !destLng) {
     return res.status(400).json({ error: 'origin/destination 좌표가 필요합니다.' })
@@ -248,7 +405,7 @@ app.get('/api/navigation/route', async (req, res) => {
 
   if (!restApiKey) {
     return res.status(503).json({
-      error: 'KAKAO_REST_API_KEY가 설정되지 않았습니다.',
+      error: 'VITE_KAKAO_REST_API_KEY가 설정되지 않았습니다.',
     })
   }
 

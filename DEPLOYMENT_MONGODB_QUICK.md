@@ -60,7 +60,7 @@ VITE_PUBLIC_DATA_SERVICE_KEY=eQaqrVvz7HoT3seuAaJ8rW4eNKU6GW%2BfLhDgLw8%2B6G3jtnJ
 MONGODB_URI=mongodb+srv://jjchaser29_db_user:soupgil1004@cluster0.a89613a.mongodb.net/jjchaser29_db?retryWrites=true&w=majority
 
 # 카카오 REST API Key
-KAKAO_REST_API_KEY=ae254ada75303708017e804c98c90577
+VITE_KAKAO_REST_API_KEY=ae254ada75303708017e804c98c90577
 
 # API URL (배포 후 자동 생성되는 Vercel URL)
 VITE_API_URL=https://your-project.vercel.app
