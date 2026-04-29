@@ -62,7 +62,7 @@ VITE_API_URL = https://easygo-backend.railway.app
 
 ### 3-C. 환경 변수 추가 (Variables 탭)
 ```
-KAKAO_REST_API_KEY = [카카오 REST API Key 붙여넣기]
+VITE_KAKAO_REST_API_KEY = [카카오 REST API Key 붙여넣기]
 NODE_ENV = production
 ```
 
@@ -125,7 +125,7 @@ curl https://easygo-backend.railway.app/api/health
 ### "Railway가 404 반환"
 ```
 → Railway 로그 확인: "npm run start" 실행 중인지 확인
-→ KAKAO_REST_API_KEY 설정 확인
+→ VITE_KAKAO_REST_API_KEY 설정 확인
 ```
 
 ---

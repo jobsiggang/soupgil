@@ -42,7 +42,7 @@ Output Directory: dist ✅
 ```
 VITE_KAKAO_MAP_APP_KEY = your_kakao_javascript_key
 VITE_PUBLIC_DATA_SERVICE_KEY = your_public_data_service_key
-KAKAO_REST_API_KEY = your_kakao_rest_key
+VITE_KAKAO_REST_API_KEY = your_kakao_rest_key
 MONGODB_URI = your_mongodb_connection_string
 
 # 체크인/점수 설정
