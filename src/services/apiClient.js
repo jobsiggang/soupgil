@@ -6,6 +6,15 @@ function toApiUrl(path) {
   return API_URL ? `${API_URL}${path}` : path
 }
 
+function getAuthToken() {
+  return localStorage.getItem('easygoAuthToken') || ''
+}
+
+function getAuthHeaders() {
+  const token = getAuthToken()
+  return token ? { Authorization: `Bearer ${token}` } : {}
+}
+
 export async function registerUser(userId, nickname) {
   const response = await fetch(toApiUrl('/api/users/register'), {
     method: 'POST',
@@ -125,6 +134,34 @@ export async function createSectionReview(sectionId, payload) {
 
   if (!response.ok) {
     throw new Error(`후기 등록 실패: ${response.status}`)
+  }
+
+  return response.json()
+}
+
+export async function exchangeKakaoAuthCode(code, redirectUri) {
+  const response = await fetch(toApiUrl('/api/auth/kakao/exchange'), {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ code, redirectUri }),
+  })
+
+  if (!response.ok) {
+    throw new Error(`카카오 로그인 실패: ${response.status}`)
+  }
+
+  return response.json()
+}
+
+export async function fetchAuthMe() {
+  const response = await fetch(toApiUrl('/api/auth/me'), {
+    headers: {
+      ...getAuthHeaders(),
+    },
+  })
+
+  if (!response.ok) {
+    throw new Error(`로그인 상태 조회 실패: ${response.status}`)
   }
 
   return response.json()

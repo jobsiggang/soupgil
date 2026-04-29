@@ -4,11 +4,12 @@ import MapPanel from './components/MapPanel'
 import {
   completeSection,
   createSectionReview,
+  exchangeKakaoAuthCode,
+  fetchAuthMe,
   fetchNavigationRoute,
   fetchSectionReviews,
   getUserProgress,
   recordStamp,
-  registerUser,
 } from './services/apiClient'
 import { loadDongseoTrailData } from './services/gpxLoader'
 
@@ -38,6 +39,10 @@ function getDistanceMeter(from, to) {
 const CHECKIN_RADIUS_METER = parsePositiveInt(import.meta.env.VITE_CHECKIN_RADIUS_METER, 80)
 const REVIEW_CERT_DWELL_MS = parsePositiveInt(import.meta.env.VITE_REVIEW_CERT_DWELL_MS, 30000)
 const WALKING_ROUTE_REFRESH_MS = parsePositiveInt(import.meta.env.VITE_WALKING_REFRESH_MS, 20000)
+const KAKAO_REST_API_KEY = (import.meta.env.VITE_KAKAO_REST_API_KEY || '').trim()
+const KAKAO_REDIRECT_URI = (
+  import.meta.env.VITE_KAKAO_REDIRECT_URI || `${window.location.origin}/auth/kakao/callback`
+).trim()
 
 export default function App() {
   const [trailData, setTrailData] = useState({ sections: [], routesMap: {}, summary: null })
@@ -67,6 +72,9 @@ export default function App() {
 
   const [arrivalStartedAt, setArrivalStartedAt] = useState(null)
   const [dwellElapsedMs, setDwellElapsedMs] = useState(0)
+  const [authStatus, setAuthStatus] = useState('checking')
+  const [authError, setAuthError] = useState('')
+  const [isAuthProcessing, setIsAuthProcessing] = useState(false)
 
   const walkingRouteThrottleRef = useRef({
     at: 0,
@@ -110,7 +118,7 @@ export default function App() {
   useEffect(() => {
     let isCancelled = false
 
-    async function initialize() {
+    async function loadTrail() {
       try {
         const trail = await loadDongseoTrailData()
 
@@ -120,31 +128,6 @@ export default function App() {
 
         setTrailData(trail)
         setSelectedSectionId(trail.sections[0]?.id ?? null)
-
-        const userId = localStorage.getItem('trailUserId') || `user-${Date.now()}`
-
-        if (!localStorage.getItem('trailUserId')) {
-          localStorage.setItem('trailUserId', userId)
-        }
-
-        try {
-          const [userRes, progressRes] = await Promise.all([
-            registerUser(userId),
-            getUserProgress(userId).catch(() => null),
-          ])
-
-          if (isCancelled) {
-            return
-          }
-
-          setCurrentUser(userRes.user)
-          setUserProgress(progressRes)
-          setBackendError('')
-        } catch (error) {
-          if (!isCancelled) {
-            setBackendError(error.message)
-          }
-        }
       } catch (error) {
         if (!isCancelled) {
           setBackendError(error.message)
@@ -152,7 +135,7 @@ export default function App() {
       }
     }
 
-    initialize()
+    loadTrail()
 
     return () => {
       isCancelled = true
@@ -160,6 +143,137 @@ export default function App() {
   }, [])
 
   useEffect(() => {
+    let isCancelled = false
+
+    async function bootstrapAuth() {
+      setAuthError('')
+      const path = window.location.pathname
+      const query = new URLSearchParams(window.location.search)
+      const authCode = query.get('code')
+      const authDenied = query.get('error')
+
+      if (path === '/auth/kakao/callback') {
+        if (authDenied) {
+          setAuthStatus('signed_out')
+          setAuthError('카카오 로그인이 취소되었거나 권한이 거부되었습니다.')
+          window.history.replaceState({}, '', '/')
+          return
+        }
+
+        if (!authCode) {
+          setAuthStatus('signed_out')
+          setAuthError('인가 코드가 없어 로그인 처리를 완료할 수 없습니다.')
+          window.history.replaceState({}, '', '/')
+          return
+        }
+
+        setIsAuthProcessing(true)
+        try {
+          const payload = await exchangeKakaoAuthCode(authCode, KAKAO_REDIRECT_URI)
+          if (isCancelled) {
+            return
+          }
+
+          const token = payload?.token
+          const user = payload?.user
+
+          if (token) {
+            localStorage.setItem('easygoAuthToken', token)
+          }
+
+          if (!user?.userId) {
+            throw new Error('로그인 사용자 정보가 응답에 없습니다.')
+          }
+
+          localStorage.setItem('easygoAuthUser', JSON.stringify(user))
+          setCurrentUser(user)
+
+          const progressRes = await getUserProgress(user.userId).catch(() => null)
+          if (isCancelled) {
+            return
+          }
+
+          setUserProgress(progressRes)
+          setBackendError('')
+          setAuthStatus('signed_in')
+          window.history.replaceState({}, '', '/')
+        } catch (error) {
+          if (!isCancelled) {
+            setAuthStatus('signed_out')
+            setAuthError(error.message)
+            localStorage.removeItem('easygoAuthToken')
+            localStorage.removeItem('easygoAuthUser')
+            window.history.replaceState({}, '', '/')
+          }
+        } finally {
+          if (!isCancelled) {
+            setIsAuthProcessing(false)
+          }
+        }
+        return
+      }
+
+      const cachedToken = localStorage.getItem('easygoAuthToken')
+      const cachedUser = localStorage.getItem('easygoAuthUser')
+
+      if (cachedToken) {
+        try {
+          const me = await fetchAuthMe()
+          if (isCancelled) {
+            return
+          }
+
+          const user = me?.user
+          if (user?.userId) {
+            localStorage.setItem('easygoAuthUser', JSON.stringify(user))
+            setCurrentUser(user)
+            const progressRes = await getUserProgress(user.userId).catch(() => null)
+            if (isCancelled) {
+              return
+            }
+            setUserProgress(progressRes)
+            setAuthStatus('signed_in')
+            return
+          }
+        } catch {
+          localStorage.removeItem('easygoAuthToken')
+        }
+      }
+
+      if (cachedUser) {
+        try {
+          const parsed = JSON.parse(cachedUser)
+          if (parsed?.userId) {
+            setCurrentUser(parsed)
+            const progressRes = await getUserProgress(parsed.userId).catch(() => null)
+            if (!isCancelled) {
+              setUserProgress(progressRes)
+              setAuthStatus('signed_in')
+              return
+            }
+          }
+        } catch {
+          localStorage.removeItem('easygoAuthUser')
+        }
+      }
+
+      if (!isCancelled) {
+        setAuthStatus('signed_out')
+      }
+    }
+
+    bootstrapAuth()
+
+    return () => {
+      isCancelled = true
+    }
+  }, [])
+
+  useEffect(() => {
+    if (authStatus !== 'signed_in') {
+      return undefined
+    }
+
     if (!navigator.geolocation) {
       setLocationError('이 브라우저는 위치 추적을 지원하지 않습니다.')
       return undefined
@@ -186,10 +300,10 @@ export default function App() {
     return () => {
       navigator.geolocation.clearWatch(watchId)
     }
-  }, [])
+  }, [authStatus])
 
   useEffect(() => {
-    if (!selectedSectionId) {
+    if (authStatus !== 'signed_in' || !selectedSectionId) {
       return
     }
 
@@ -221,7 +335,7 @@ export default function App() {
     return () => {
       isCancelled = true
     }
-  }, [selectedSectionId])
+  }, [authStatus, selectedSectionId])
 
   useEffect(() => {
     if (!isArrived) {
@@ -246,6 +360,10 @@ export default function App() {
   }, [arrivalStartedAt])
 
   useEffect(() => {
+    if (authStatus !== 'signed_in') {
+      return
+    }
+
     async function loadWalkingRoute() {
       if (!liveLocation || !selectedSection?.endPoint) {
         setWalkingPath([])
@@ -295,7 +413,7 @@ export default function App() {
     }
 
     loadWalkingRoute()
-  }, [liveLocation, selectedSection])
+  }, [authStatus, liveLocation, selectedSection])
 
   async function refreshProgress() {
     if (!currentUser?.userId) {
@@ -340,6 +458,32 @@ export default function App() {
     } finally {
       setIsRefreshingLocation(false)
     }
+  }
+
+  function getKakaoLoginUrl() {
+    const params = new URLSearchParams({
+      response_type: 'code',
+      client_id: KAKAO_REST_API_KEY,
+      redirect_uri: KAKAO_REDIRECT_URI,
+    })
+    return `https://kauth.kakao.com/oauth/authorize?${params.toString()}`
+  }
+
+  function handleKakaoLogin() {
+    if (!KAKAO_REST_API_KEY) {
+      setAuthError('VITE_KAKAO_REST_API_KEY가 비어 있어 로그인 URL을 만들 수 없습니다.')
+      return
+    }
+    window.location.href = getKakaoLoginUrl()
+  }
+
+  function handleLogout() {
+    localStorage.removeItem('easygoAuthToken')
+    localStorage.removeItem('easygoAuthUser')
+    setCurrentUser(null)
+    setUserProgress(null)
+    setAuthStatus('signed_out')
+    setAuthError('')
   }
 
   function handleReviewImageChange(event) {
@@ -435,6 +579,42 @@ export default function App() {
     ? (trailData.summary.totalDistanceMeter / 1000).toFixed(1)
     : '-'
 
+  if (authStatus === 'checking' || isAuthProcessing) {
+    return (
+      <main className="app-shell">
+        <section className="panel auth-panel">
+          <p className="eyebrow">EASYGO LOGIN</p>
+          <h1>카카오 로그인 처리 중</h1>
+          <p className="hero-description">잠시만 기다려 주세요. 로그인 상태를 확인하고 있습니다.</p>
+        </section>
+      </main>
+    )
+  }
+
+  if (authStatus !== 'signed_in') {
+    return (
+      <main className="auth-screen">
+        <div className="auth-orb" />
+        <section className="auth-card">
+          <p className="auth-logo">easygo</p>
+          <h1>Welcome to EASYGO</h1>
+          <p className="auth-subtitle">Please login</p>
+          <div className="hero-actions auth-actions">
+            <button type="button" className="primary-button kakao-login-button" onClick={handleKakaoLogin}>
+              LOG-IN with KAKAO
+            </button>
+          </div>
+          <div className="auth-links">
+            <span>Forgot Password?</span>
+            <span>Create an account</span>
+          </div>
+          <p className="auth-caption">A professional simulator for field-based trail 인증 solution.</p>
+          {authError ? <p className="error-text">{authError}</p> : null}
+        </section>
+      </main>
+    )
+  }
+
   return (
     <main className="app-shell">
       <section className="hero-panel panel">
@@ -457,6 +637,9 @@ export default function App() {
             <span className="subtle-text">
               인증 조건: 반경 {CHECKIN_RADIUS_METER}m 도착 + {Math.floor(REVIEW_CERT_DWELL_MS / 1000)}초 체류 + 후기 작성
             </span>
+            <button type="button" className="primary-button secondary" onClick={handleLogout}>
+              로그아웃
+            </button>
           </div>
         </div>
 
